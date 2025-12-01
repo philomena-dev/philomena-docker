@@ -1,0 +1,11 @@
+/volumes/postgres
+/volumes/opensearch
+/volumes/caddy
+/volumes/files
+/volumes/cache
+/logs/nginx
+/logs/caddy
+/.env
+/.env-web
+/nginx.conf
+*.pgdump

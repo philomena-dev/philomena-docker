@@ -1,0 +1,128 @@
+name: philomena
+
+services:
+  app:
+    image: ghcr.io/philomena-dev/philomena:master
+    env_file: .env
+    working_dir: /srv/philomena
+    attach: true
+    depends_on:
+      - postgres
+      - opensearch
+      - valkey
+      - mediaproc
+
+  worker:
+    image: ghcr.io/philomena-dev/philomena:master
+    environment:
+      - START_WORKER=true
+      - START_ENDPOINT=false
+    env_file: .env
+    working_dir: /srv/philomena
+    attach: false
+    depends_on:
+      - postgres
+      - opensearch
+      - valkey
+      - mediaproc
+
+  postgres:
+    image: postgres:18.1-alpine
+    environment:
+      - POSTGRES_HOST_AUTH_METHOD=trust
+      - POSTGRES_USER=philomena
+      - POSTGRES_PASSWORD=philomena
+      - POSTGRES_DB=philomena
+      - LANG=en_US.utf8
+    volumes:
+      - ./volumes/postgres/18:/var/lib/postgresql/data
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "max_connections=256"
+    attach: false
+
+  opensearch:
+    image: opensearchproject/opensearch:3.3.2
+    environment:
+      - TAKE_FILE_OWNERSHIP=true
+      - OPENSEARCH_JAVA_OPTS=-Xms8g -Xmx8g
+    volumes:
+      - ./volumes/opensearch:/usr/share/opensearch/data
+      - ./opensearch.yml:/usr/share/opensearch/config/opensearch.yml:ro
+    attach: false
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      memlock:
+        soft: -1
+        hard: -1
+
+  valkey:
+    image: valkey/valkey:9.0.0-alpine
+    attach: false
+
+  mediaproc:
+    image: ghcr.io/philomena-dev/mediaproc:master
+    attach: false
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8gb
+          pids: 8192
+
+  caddy:
+    image: ghcr.io/philomena-dev/philomena-web:master
+    volumes:
+      - ./volumes/caddy:/data
+      - ./logs/caddy:/var/log/caddy
+    env_file: .env-web
+    depends_on:
+      - app
+    attach: false
+
+  web:
+    image: nginx:1.29.3-alpine
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./logs/nginx:/etc/nginx/logs
+      - ./volumes/cache:/var/www/cache
+    attach: false
+    depends_on:
+      - caddy
+      - app
+    ports:
+      - '80:80'
+      - '443:443'
+
+  # Optional local S3 storage service.
+  files:
+    image: andrewgaul/s3proxy:sha-3080d9e
+    environment:
+      - JCLOUDS_FILESYSTEM_BASEDIR=/data
+      - S3PROXY_IGNORE_UNKNOWN_HEADERS=true
+    volumes:
+      - ./volumes/files:/data
+    attach: false
+    profiles:
+      - local-storage
+
+  # Optional local proxy services (go-camo and tinyproxy).
+  gocamo:
+    image: cactus4docker/go-camo:v2.7.1
+    env_file: .env-web
+    attach: false
+    profiles:
+      - local-proxy
+
+  tinyproxy:
+    image: ghcr.io/philomena-dev/tinyproxy:1.11.2
+    attach: false
+    volumes:
+      - ./tinyproxy.conf:/tinyproxy.conf:ro
+    profiles:
+      - local-proxy
