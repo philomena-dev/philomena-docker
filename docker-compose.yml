@@ -89,6 +89,7 @@ services:
     image: nginx:1.29.3-alpine
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
       - ./logs/nginx:/etc/nginx/logs
       - ./volumes/cache:/var/www/cache
     attach: false

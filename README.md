@@ -9,7 +9,9 @@
 > - Short-term instances (intended to run for less than 12 months)
 > - To test/evaluate the Philomena software
 > 
-> **If you intend to run a Philomena instance which does not meet the above criteria, follow the [Recommended Setup Guide](https://github.com/philomena-dev/philomena/wiki/Production-Setup) instead.**
+> **If you intend to run a Philomena instance which does not meet the above criteria, we highly recommend that you follow the [Kubernetes Setup Guide](https://github.com/philomena-dev/philomena/wiki/Production-Setup) instead.**
+> 
+> Kubernetes deployment is designed with long-term operation and scalability in mind. It has many advantages over the Docker setup, among the most notable of which are easier disaster recovery, better security, and easier long-term maintenance.
 
 > [!CAUTION]
 > 
@@ -64,17 +66,17 @@
 
 ### HTTPS/SSL Configuration
 
-> [!NOTE]
-> 
-> Skip this step if using `.local` domains such as `philomena.local`.
+Philomena always uses HTTPS in production environment. As such, the webserver needs a SSL certificate. For '.local' domains, the certificate can be generated via 'generate-certificate.sh' script. The generation script is ran as part of 'prepare.sh' if you opt to use a self-signed certificate, so you don't need to run it manually during the initial setup. Please note that you will have to trust the certificate in your browser in that case.
 
-Make sure to provide your own SSL certificate and its private key. We recommend using [certbot](https://certbot.eff.org/) to manage certificates for you. You will be asked for a full path to the SSL certificates folder (typically `/etc/letsencrypt/live/yourdomain`). Make sure your SSL certificate includes:
+If using a proper domain name, make sure to provide your own SSL certificate and its private key. We recommend using [certbot](https://certbot.eff.org/) to manage certificates for you. You will be asked for a full path to the SSL certificates folder (typically `/etc/letsencrypt/live/yourdomain`). Make sure your SSL certificate includes:
 
 - The app domain (e.g. philomena.example)
 - The CDN domain (e.g. philomena-cdn.example)
 - The external media domain (e.g. ext.philomena-cdn.example)
 
-Use your actual domains instead of `philomena.example` and `philomena-cdn.example`.
+Use your actual domains instead of `philomena.example` and `philomena-cdn.example`. When the certificate renews, you will have to run 'copy-certificate.sh' script to copy it to the 'certs' folder. You can setup certbot to run a renew hook which calls the script automatically upon renewal.
+
+If your domain is behind an anti-DDoS proxy like Cloudflare, you might be able to have that service issue an "origin certificate". Copy the origin certificate and its key to the "certs" folder, make sure the certificate is named 'fullchain.pem', and its key is named 'privkey.pem'.
 
 ### Installation
 
@@ -120,7 +122,9 @@ Run
 ./prepare.sh
 ```
 
-and fill out the prompts. This will automatically generate and fill out the `.env` and `.env-web` files with secret keys and your site domain. Open `.env` and `.env-web` with a text editor (such as nano or vim) and fill out any and all variables set to `CHANGE_THIS`.
+and fill out the prompts. This will automatically generate and fill out the `.env` and `.env-web` files with secret keys and your site domain. The script will also show you the automatically-generated default administrator account password. Make sure to copy it somewhere safe, you will need these credentials to log into your Philomena instance for the first time. You can also find the credentials in the `.admin` file, which will be automatically deleted after the setup is complete.
+
+After you've saved the administrator credentials somewhere safe, open `.env` and `.env-web` with a text editor (such as nano or vim) and fill out any and all variables set to `CHANGE_THIS`.
 
 > [!NOTE]
 > 
@@ -160,6 +164,8 @@ Note: the credentials below are randomly-generated for demonstration purposes on
 **Remove the ALT_* variables from the .env file.**
 
 ```
+S3_ENDPOINT=https://ea642d6c6561f0f28f43e01b318c57dc.r2.cloudflarestorage.com
+
 S3_REGION=auto
 S3_SCHEME=https
 S3_HOST=ea642d6c6561f0f28f43e01b318c57dc.r2.cloudflarestorage.com
@@ -241,43 +247,17 @@ This will create a backup at 2 AM. Feel free to adjust the exact schedule of thi
 > 
 > You might have to use the command `docker-compose` instead of `docker compose` on some distributions.
 
-During the first startup, run
+Before the first startup, run
 
 ```sh
-docker compose pull
-docker compose run --rm app setup-production
+./setup.sh
 ```
 
-<details>
-<summary>If using local S3 storage</summary>
-
-You will need to create the bucket if you're using local S3 storage backend. To do so, launch the app with the `local-storage` profile like so:
-
-```
-docker compose --profile local-storage up
-```
-
-After it starts, open a new terminal window, and type
-
-```
-docker exec philomena-app-1 philomena start_iex
-```
-
-You will see an Elixir "iex" window. Paste the following into it:
-
-```
-PhilomenaMedia.Objects.create_buckets()
-```
-
-You should see `:ok` as output. If you see any errors, your S3 configuration is incorrect. Once you're done, press Ctrl+C, then type "a", and press enter, to exit the Elixir console.
-
-Once you're done, hit Ctrl+C on the `docker compose up` terminal window, and continue following this tutorial.
-
-</details>
-
-After the setup script is complete, simply run
+and note if there are any errors in the output. If there are no errors, your Philomena instance is now ready to launch, simply run
 
 ```sh
+# Read the profile documentation below for instructions on how to
+# start Philomena with local S3 storage or local proxy services.
 docker compose up -d
 ```
 
@@ -297,15 +277,11 @@ docker compose --profile local-storage up -d
 docker compose --profile local-storage --profile local-proxy up -d
 ```
 
-Once Philomena is running, you can log in using the default Administrator credentials:
+Once Philomena is running, you can log in using the Administrator credentials. They were shown to you upon completion of `prepare.sh` script.
 
 > [!WARNING]
 > 
-> **Make sure to change the Administrator email and password!**
-> 
-> **Username:** admin@example.com
-> 
-> **Password:** philomena123
+> **Make sure to change the administrator account password after logging in!**
 
 ### Maintaining
 
@@ -356,6 +332,6 @@ docker compose up -d
 
 ## Support
 
-We're happy to answer any of your questions and help you get your deployment up and running. If you need help setting up production Philomena, or migrating it to our "recommended deployment", feel free to ask in [the discussions section](https://github.com/philomena-dev/philomena-docker/discussions).
+We're happy to answer any of your questions and help you get your deployment up and running. If you need help setting up production Philomena, or migrating it to our "kubernetes deployment", feel free to ask in [the discussions section](https://github.com/philomena-dev/philomena-docker/discussions).
 
 If you'd like to report an issue with the configuration files provided in this repository, or suggest any improvements, feel free to [create an issue](https://github.com/philomena-dev/philomena-docker/issues).

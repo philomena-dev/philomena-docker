@@ -7,5 +7,10 @@
 /logs/caddy
 /.env
 /.env-web
+/.admin
 /nginx.conf
 *.pgdump
+*.pem
+*.srl
+*.csr
+*.cnf
