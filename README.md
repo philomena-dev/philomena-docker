@@ -189,6 +189,7 @@ S3_HOST=files
 S3_PORT=80
 S3_BUCKET=philomena
 AWS_ACCESS_KEY_ID=local-identity
+AWS_SECRET_ACCESS_KEY=local-credential
 ```
 </details>
 

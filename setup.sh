@@ -22,6 +22,8 @@ docker compose run \
   -e ADMIN_PASSWORD=$ADMIN_PASSWORD \
   app setup-production
 
+sleep 3
+
 if [ $S3_HOST = "files" ]; then
   echo "Setting up the local S3 storage bucket..."
 
@@ -33,6 +35,8 @@ if [ $S3_HOST = "files" ]; then
 
   if ! docker exec philomena-app-1 philomena eval 'Philomena.Release.create_buckets()'; then
     echo "ERROR: Could not create S3 buckets. Your S3 configuration may be incorrect."
+  else
+    echo "Successfully created the S3 buckets."
   fi
 
   docker compose down
