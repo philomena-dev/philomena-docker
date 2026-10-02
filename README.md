@@ -1,338 +1,296 @@
-# Philomena Docker-Based Production
+# Philomena Docker Deployment
 
-> [!WARNING]
-> 
-> This deployment method is not recommended and only suitable for a limited number of use cases, which are:
-> 
-> - Very small instances (less than 10,000 images)
-> - Budget-constrained instances
-> - Short-term instances (intended to run for less than 12 months)
-> - To test/evaluate the Philomena software
-> 
-> **If you intend to run a Philomena instance which does not meet the above criteria, we highly recommend that you follow the [Kubernetes Setup Guide](https://github.com/philomena-dev/philomena/wiki/Production-Setup) instead.**
-> 
-> Kubernetes deployment is designed with long-term operation and scalability in mind. It has many advantages over the Docker setup, among the most notable of which are easier disaster recovery, better security, and easier long-term maintenance.
+Runs a production [Philomena](https://github.com/philomena-dev/philomena) site with Docker Compose. One script, `philomena.sh`, installs it, keeps it updated, and backs it up.
 
-> [!CAUTION]
-> 
-> This deployment method leaves no room for growth. If your site "outgrows" your server hardware, or wish to transition to the Kubernetes-based deployment, you will have to move all of your data to the new server manually, and potentially re-deploy everything from scratch.
+There are two supported layouts:
 
-### Prerequisites
+| Layout | Servers | Use it when |
+| --- | --- | --- |
+| **App server + proxy server** (recommended) | Two | The site is open to the public. |
+| **Single server** | One | The site is small, private, or being evaluated. |
 
-**Required:**
+In the two-server layout, the proxy server is the only machine visitors and third parties ever talk to. It terminates TLS, serves and caches the CDN domain, proxies embedded external images, and makes every outgoing request the scraper needs. The app server holds the database and the application, accepts connections only from the proxy server, and its address does not appear anywhere. If the proxy server comes under attack it can be replaced in minutes, without touching any data.
 
-- One server
-   - Any capable Docker host; Debian 13 (trixie) is tested
-   - At least 4 CPU cores
-   - At least 16 GB RAM
-      - More is better, but 16 GB should be sufficient for the use cases outlined above
-   - At least 40 GB storage
-      - For best results, use SSD storage
-      - 8 GB required by CDN cache
-      - Reserve at least...
-         - 10 GB for system packages and files
-         - 10 GB for database and search engine
-         - 6 GB for database backups
-         - 2 GB for logs
-      - Search engine uses 2-4x less storage than the database
-      - If you intend to host images locally, provision 30 GB per 10,000 images
-   - Internet connection is required
-      - ...to pull Docker images
-      - ...to communicate with external APIs (hCaptcha, Tumblr)
-      - ...to fetch content using the scraper
-- SMTP relay/server (for sending mails)
-   - You can host it yourself, or opt to use a managed service, but this is outside the scope of this guide
-   - This is required for user confirmations and password resets
-- [hCaptcha API key](https://www.hcaptcha.com/)
-- [Tumblr API key](https://www.tumblr.com/docs/en/api/v2)
+On a single server the same components run side by side. This works well, but the address of the machine that holds your data is public, and every fetch of a user-submitted URL originates from it.
 
-**Optional:**
+A single-server deployment can be split into two later without reinstalling: see [Adding a proxy server later](#adding-a-proxy-server-later).
 
-- Two domains
-   - One domain for the application (yourapplication.example)
-   - One domain for the CDN and a subdomain for the external content service (yourcdnhere.example, ext.yourcdnhere.example)
-   - Note on availability:
-     - A separate CDN domain protects your application domain from being [globally blocked](https://en.wikipedia.org/wiki/Google_Safe_Browsing) if malicious files are uploaded or proxied through it
-     - If this is not relevant to your threat model, you can opt for the CDN and external content services to be subdomains of a single domain (cdn.yourapplication.example, ext.yourapplication.example)
-- S3-compatible object storage service (example: Cloudflare R2)
-- S3-compatible redundant object storage service for backups (example: Backblaze B2)
-- Anti-DDoS proxy service in front of the main site and the CDN domain
-   - Such as Cloudflare
-   - DDoS protection will help keep your site operational against common denial-of-service vectors
-   - Anti-bot features provide some protection against abusive crawlers
-- Separate server to run [Go-Camo](https://github.com/cactus/go-camo) and [Tinyproxy](https://github.com/tinyproxy/tinyproxy)
-   - For availability considerations, this server **should** be hosted by a different provider than your application server
-   - If not used, anti-DDoS proxy services have only minimal effectiveness
+## Requirements
 
-### HTTPS/SSL Configuration
+### App server (or single server)
 
-Philomena always uses HTTPS in production environment. As such, the webserver needs a SSL certificate. For '.local' domains, the certificate can be generated via 'generate-certificate.sh' script. The generation script is ran as part of 'prepare.sh' if you opt to use a self-signed certificate, so you don't need to run it manually during the initial setup. Please note that you will have to trust the certificate in your browser in that case.
+- Any Docker host on x86_64 or arm64; Debian 13 (trixie) is tested
+- At least 4 CPU cores
+- At least 16 GB RAM
+- At least 50 GB of SSD storage
+  - 10 GB for the system and container images
+  - 10 GB for the database and the search indexes
+  - 6 GB for database backups
+  - 8 GB for logs
+  - On a single server, 8 GB for the CDN cache
+  - If uploaded files are kept on this server, 30 GB per 10,000 images
+- Outgoing internet access
 
-If using a proper domain name, make sure to provide your own SSL certificate and its private key. We recommend using [certbot](https://certbot.eff.org/) to manage certificates for you. You will be asked for a full path to the SSL certificates folder (typically `/etc/letsencrypt/live/yourdomain`). Make sure your SSL certificate includes:
+### Proxy server
 
-- The app domain (e.g. philomena.example)
-- The CDN domain (e.g. philomena-cdn.example)
-- The external media domain (e.g. ext.philomena-cdn.example)
+- Any Docker host on x86_64 or arm64
+- 2 CPU cores, 2 GB RAM
+- 20 GB of storage, of which 8 GB is the CDN cache
+- Preferably at a different hosting provider than the app server
 
-Use your actual domains instead of `philomena.example` and `philomena-cdn.example`. When the certificate renews, you will have to run 'copy-certificate.sh' script to copy it to the 'certs' folder. You can setup certbot to run a renew hook which calls the script automatically upon renewal.
+### Services
 
-If your domain is behind an anti-DDoS proxy like Cloudflare, you might be able to have that service issue an "origin certificate". Copy the origin certificate and its key to the "certs" folder, make sure the certificate is named 'fullchain.pem', and its key is named 'privkey.pem'.
+- **A domain for the site**, plus a domain for the CDN and one for proxied external images.
+  - A CDN domain that is separate from the site's domain keeps the site from being [blocked](https://en.wikipedia.org/wiki/Google_Safe_Browsing) when someone uploads a malicious file. If that does not concern you, subdomains of the site's domain work too (`cdn.example.org`, `ext.example.org`).
+  - All three point at the proxy server, or at the single server.
+- **An SMTP relay** for account confirmations and password resets. Pick one that does not add the address of the sending client to outgoing mail, or the address of the app server ends up in every message.
+- **[hCaptcha](https://www.hcaptcha.com/) keys.**
+- **A [Tumblr API key](https://www.tumblr.com/docs/en/api/v2)**, used by the scraper.
+- **S3-compatible object storage** for uploaded files, such as Cloudflare R2. Optional: files can be kept on the app server instead.
+- **A second bucket at another provider**, such as Backblaze B2, that every upload is copied to. Optional.
 
-### Installation
+## Installation
 
-> [!NOTE]
-> 
-> This guide assumes you have correctly configured the domain DNS records to point at your server(s).
+### 1. Prepare each server
 
-First, install the prerequisite packages on your server. As root, run:
+As root, install the required packages and [Docker](https://docs.docker.com/engine/install/debian/):
 
 ```sh
 apt update
-apt install bash git gettext-base openssl
-```
-
-Install Docker by following [this guide](https://docs.docker.com/engine/install/debian/). Test if Docker is available:
-
-```sh
+apt install git openssl
 docker run --rm hello-world
 ```
 
-Create a separate user for Philomena. This is important, as the scripts assume that the location of the repository is `/home/philomena/philomena-docker`.
+On the app server (or single server), raise a kernel limit the search engine depends on:
+
+```sh
+echo 'vm.max_map_count=262144' > /etc/sysctl.d/99-philomena.conf
+sysctl --system
+```
+
+Create a user for the deployment and let it use Docker:
 
 ```sh
 adduser philomena
-```
-
-In order to allow the philomena account to run Docker, add it to the "docker" user group like so:
-
-```sh
 usermod -aG docker philomena
 ```
 
-As `philomena` user, clone the deployment repository to the `/home/philomena` folder:
+Everything from here on is done as that user. Clone this repository:
 
 ```sh
 git clone https://github.com/philomena-dev/philomena-docker
 cd philomena-docker
 ```
 
-Run
+### 2. Set up the app server (or single server)
 
 ```sh
-./prepare.sh
+./philomena.sh prepare
 ```
 
-and fill out the prompts. This will automatically generate and fill out the `.env` and `.env-web` files with secret keys and your site domain. The script will also show you the automatically-generated default administrator account password. Make sure to copy it somewhere safe, you will need these credentials to log into your Philomena instance for the first time. You can also find the credentials in the `.admin` file, which will be automatically deleted after the setup is complete.
+This asks for the layout, the domains, and where uploaded files are kept, and writes the settings to `.env`. It prints the password of the first administrator account; note it down.
 
-After you've saved the administrator credentials somewhere safe, open `.env` and `.env-web` with a text editor (such as nano or vim) and fill out any and all variables set to `CHANGE_THIS`.
-
-> [!NOTE]
-> 
-> Once filled out, make sure to back up the `.env` files somewhere safe. They contain encryption secrets required for Philomena operation. If you lose this file, your users will be forced to reset their passwords before they can log in, and the names of anonymous users will be changed to new random values.
+Open `.env` and fill in every value that reads `CHANGE_THIS`. The file explains each setting.
 
 <details>
-<summary>Example S3 configuration with Cloudflare R2 and Backblaze B2</summary>
+<summary>Object storage with Cloudflare R2 and a second bucket at Backblaze B2</summary>
 
-Note: the credentials below are randomly-generated for demonstration purposes only
+The credentials below are made up.
 
 ```
-S3_ENDPOINT=https://ea642d6c6561f0f28f43e01b318c57dc.r2.cloudflarestorage.com
-
-S3_REGION=auto
 S3_SCHEME=https
 S3_HOST=ea642d6c6561f0f28f43e01b318c57dc.r2.cloudflarestorage.com
 S3_PORT=443
+S3_REGION=auto
 S3_BUCKET=philomena-images-758b544c
 AWS_ACCESS_KEY_ID=b0f0dd4fd649c06ec598b80a8e35f186
 AWS_SECRET_ACCESS_KEY=dcc5c420d9fa79d74c17361b3e038475f3c6a2a98cae5d80bb73d813f0179aaf
 
-ALT_S3_REGION=
+# A token that can only read, for the web servers
+WEB_AWS_ACCESS_KEY_ID=7d1f0c9e4f3a4b0f9a2f6c1d6d3e8b52
+WEB_AWS_SECRET_ACCESS_KEY=0f6e2a7f9c4b1d3e8a5c7b9d2f4e6a8c0b1d3f5a7c9e2b4d6f8a0c2e4b6d8f1a
+
 ALT_S3_SCHEME=https
 ALT_S3_HOST=s3.eu-central-003.backblazeb2.com
 ALT_S3_PORT=443
+ALT_S3_REGION=eu-central-003
 ALT_S3_BUCKET=philomena-backups-bf7afb0f
 ALT_AWS_ACCESS_KEY_ID=59050766e380fe0cc501fcf91
 ALT_AWS_SECRET_ACCESS_KEY=1291e01247a6f6d30052f86593cc1df
 ```
+
 </details>
 
-<details>
-<summary>Example S3 configuration with Cloudflare R2 without redundant backups</summary>
-
-Note: the credentials below are randomly-generated for demonstration purposes only
-
-**Remove the ALT_* variables from the .env file.**
-
-```
-S3_ENDPOINT=https://ea642d6c6561f0f28f43e01b318c57dc.r2.cloudflarestorage.com
-
-S3_REGION=auto
-S3_SCHEME=https
-S3_HOST=ea642d6c6561f0f28f43e01b318c57dc.r2.cloudflarestorage.com
-S3_PORT=443
-S3_BUCKET=philomena-images-758b544c
-AWS_ACCESS_KEY_ID=b0f0dd4fd649c06ec598b80a8e35f186
-AWS_SECRET_ACCESS_KEY=dcc5c420d9fa79d74c17361b3e038475f3c6a2a98cae5d80bb73d813f0179aaf
-```
-</details>
-
-<details>
-<summary>If using local S3 storage</summary>
-
-**Make sure to remove all ALT_* variables, as well as S3_REGION!**
-
-```
-S3_ENDPOINT=http://files:80
-
-S3_SCHEME=http
-S3_HOST=files
-S3_PORT=80
-S3_BUCKET=philomena
-AWS_ACCESS_KEY_ID=local-identity
-AWS_SECRET_ACCESS_KEY=local-credential
-```
-</details>
-
-<details>
-<summary>If hosting `go-camo` and `tinyproxy` on a separate server:</summary>
-
-Edit the following environment variable
-
-```
-PROXY_HOST=http://tinyproxy:3128
-```
-
-and replace "tinyproxy" with the IP address of your proxy server. Point whichever domain is set in `CAMO_HOST` to the IP of your proxy server.
-</details>
-
-**After filling out the environment files:**
-
-Run
+Then verify the server and the settings, and install:
 
 ```sh
-./check.sh
+./philomena.sh check
+./philomena.sh setup
 ```
 
-to check whether your configuration is fully filled in. If you see any errors, correct them before proceeding.
+`setup` creates the database and starts everything. On a single server the site is now reachable; log in and change the administrator password.
 
-### Setting up cron jobs
+> [!IMPORTANT]
+> Copy `.env` somewhere safe. It holds the secrets passwords and sessions are derived from. A database backup cannot be used without it.
 
-Philomena relies on periodic cron tasks to be executed on a fixed schedule. To edit your cron file, use
+### 3. Set up the proxy server
+
+Skip this on a single server.
+
+On the app server, package what the proxy server needs to know:
 
 ```sh
-crontab -e
+./philomena.sh proxy-bundle
 ```
 
-and make sure its contents look similar to this:
-
-```
-*/5 * * * * docker exec philomena-app-1 run-cron
-0 8 * * * docker exec philomena-app-1 run-cron-daily
-```
-
-This will run the cron jobs every 5 minutes, and perform the daily cron tasks at 8 AM every day. Feel free to adjust the exact hour when the daily task is ran, it should be set to a period of reduced user activity.
-
-### Setting up backups
-
-This repository provides a utility script to back up your Philomena instance's database. The backups are stored in the "backups" folder and are created using `pg_dump` with the "custom" dump format. To set the backups to run on a fixed schedule, add this to your cron:
-
-```
-0 2 * * * /home/philomena/philomena-docker/scripts/create-backup.sh
-```
-
-This will create a backup at 2 AM. Feel free to adjust the exact schedule of this task as needed.
-
-### Running
-
-> [!NOTE]
-> 
-> You might have to use the command `docker-compose` instead of `docker compose` on some distributions.
-
-Before the first startup, run
+Copy the resulting `proxy-bundle.tar.gz` into the repository on the proxy server, and there run:
 
 ```sh
-./setup.sh
+./philomena.sh prepare --proxy proxy-bundle.tar.gz
+./philomena.sh check
+./philomena.sh up
 ```
 
-and note if there are any errors in the output. If there are no errors, your Philomena instance is now ready to launch, simply run
+Delete the bundle from both servers afterwards; it contains credentials.
+
+The two servers talk to each other over two ports, both of which only accept a peer holding a certificate from the deployment's private authority:
+
+| Direction | Port | Purpose |
+| --- | --- | --- |
+| Proxy server → app server | 8443 | Requests for the site |
+| App server → proxy server | 3129 | Outgoing requests of the scraper |
+
+Restrict each port to the address of the other server in your hosting provider's firewall. Docker publishes ports in a way that bypasses `ufw` and similar host firewalls, so do not rely on those.
+
+When files are kept in object storage, the proxy server reads them from there directly. When they are kept on the app server, it requests them through the link.
+
+### Certificates
+
+The public-facing server needs a certificate that is valid for all three domains. `prepare` asks for one, and creates a self-signed certificate if you have none yet.
+
+To use [certbot](https://certbot.eff.org/), request the certificate with the webroot method, which works while the site is running, and let certbot install it after every renewal:
 
 ```sh
-# Read the profile documentation below for instructions on how to
-# start Philomena with local S3 storage or local proxy services.
-docker compose up -d
+certbot certonly --webroot -w /home/philomena/philomena-docker/volumes/acme \
+  -d philomena.example -d philomena-cdn.example -d ext.philomena-cdn.example \
+  --deploy-hook '/home/philomena/philomena-docker/philomena.sh cert install /etc/letsencrypt/live/philomena.example'
 ```
 
-and access the site via the URL you configured.
-
-**If you wish to enable optional features, add `--profile` argument to the `docker compose up` command.**
-
-Profile | Description
---- | ---
---profile local-storage | Enables local S3 storage (store images on the local server as opposed to external object storage service)
---profile local-proxy | Enables `go-camo` and `tinyproxy` services, if using this option, edit the generated `nginx.conf` file and uncomment the `server` block at the bottom of it
-
-Example:
+To install a certificate from anywhere else, such as an origin certificate issued by your DDoS protection service, put `fullchain.pem` and `privkey.pem` in a directory and run:
 
 ```sh
-docker compose --profile local-storage up -d
-docker compose --profile local-storage --profile local-proxy up -d
+./philomena.sh cert install /path/to/directory
 ```
 
-Once Philomena is running, you can log in using the Administrator credentials. They were shown to you upon completion of `prepare.sh` script.
+`./philomena.sh check` warns when a certificate is about to expire.
 
-> [!WARNING]
-> 
-> **Make sure to change the administrator account password after logging in!**
+### Behind Cloudflare
 
-### Maintaining
+If the domains are proxied by Cloudflare or a similar service, the public-facing server has to be told, or it will see every visitor as coming from that service. In `.env` on the proxy server (or single server), set:
 
-You can use the provided `philomena.sh` script to access various aspects of the deployment. Philomena must be running for this script to work.
+```
+CLIENT_IP_SOURCE=cloudflare
+```
 
-**psql**
+and run `./philomena.sh up`. For other services, see [config/nginx/realip](config/nginx/realip).
+
+## Day-to-day operation
+
+Run `./philomena.sh` without arguments for the full list of commands.
+
+| Command | What it does |
+| --- | --- |
+| `./philomena.sh status` | Shows what is running, and the age of the newest backup |
+| `./philomena.sh logs [service]` | Follows the logs |
+| `./philomena.sh up` / `down` | Starts or stops everything |
+| `./philomena.sh restart [service]` | Restarts everything, or one service |
+| `./philomena.sh psql` | Opens a database console |
+| `./philomena.sh console` | Opens an Elixir console in the running application |
+| `./philomena.sh check` | Verifies the server, the settings and the certificates |
+
+`docker compose` commands work as usual in this directory.
+
+All services start again on their own after a reboot.
+
+The periodic jobs of the application run in the `scheduler` container: one batch every five minutes, and the daily maintenance at `CRON_DAILY_HOUR` (UTC). Nothing needs to be added to the host's crontab.
+
+### Changing settings
+
+Edit `.env`, then run `./philomena.sh check` and `./philomena.sh up`. Do not edit the files that belong to this repository, as that blocks updates. Changes to the Compose configuration go in a `docker-compose.override.yml`, added to the end of `COMPOSE_FILE` in `.env`.
+
+### Backups
+
+The `backup` container writes a dump of the database to `./backups` every day at `BACKUP_HOUR` (UTC), and removes dumps older than `BACKUP_KEEP_DAYS` days. `./philomena.sh backup` makes one immediately.
+
+Copy these off the server regularly:
+
+- `./backups`
+- `.env`
+- `./volumes/files`, if uploaded files are kept on the app server
+- `./certs/internal`, in a two-server deployment
+
+To replace the database with a backup:
 
 ```sh
-./philomena.sh psql
+./philomena.sh restore backups/database_2026_01_31-02-00.pgdump
 ```
 
-**Elixir console (iex)**
+This stops the application, restores the database, rebuilds the search indexes from it, and starts the application again.
+
+To recover on a new server, install as described above, but put the saved `.env` in place instead of running `prepare`, remove the `.admin` file if there is one, copy the backup into `./backups`, and run `restore` instead of `setup`.
+
+## Updating
 
 ```sh
-./philomena.sh console
+./philomena.sh update
 ```
 
-### Updating
+This updates the checkout of this repository, downloads the images it now points to, and installs them. On the app server it:
 
-To update Philomena to the latest version within the current major revision, run the following:
+1. verifies the settings against what the new version expects;
+2. lets the new release check the database, while the site keeps running;
+3. backs up the database;
+4. stops the application, upgrades the database and the search indexes, and starts the new release.
+
+Nothing is changed if one of the first two steps finds a problem. A release can also ask for a decision before it can be installed, such as how to deal with data that does not fit a new constraint. It explains what it needs, and the answer is passed with `-e`:
 
 ```sh
-docker compose down
-git pull
-./upgrade.sh
-docker compose run app setup-production
-
-# Make sure to include any --profile arguments here, depending on your setup.
-docker compose up -d
+./philomena.sh update -e NAME=value
 ```
 
-To update to the next major revision, first perform the update as described above, then run the following:
+In a two-server deployment, update the app server first, then the proxy server.
+
+If an upgrade fails halfway, the application is left stopped and the command prints how to try again and how to return to the previous version from the backup it made.
+
+### Major versions
+
+Each major version of Philomena has a branch in this repository, named `1.x`, `2.x` and so on. `update` stays on the current branch. To move to the next major version, read its release notes, then run:
 
 ```sh
-docker compose down
-
-# Assuming you are on 1.x branch and 2.x branch exists.
-# Do not jump between more than 1 major version (e.g. 1.x to 3.x),
-# as this is not supported and may result in data corruption and
-# failure to update.
-git checkout --track origin/2.x
-./upgrade.sh
-docker compose run app setup-production
-
-# Make sure to include any --profile arguments here, depending on your setup.
-docker compose up -d
+./philomena.sh update --branch 2.x
 ```
+
+Major versions cannot be skipped. The command refuses unless the deployment is fully updated within its current major version first.
+
+## Adding a proxy server later
+
+A single-server deployment becomes the app server of a two-server deployment as follows.
+
+1. In `.env`, set `ROLE=app` and `COMPOSE_FILE=docker-compose.yml:docker-compose.link-app.yml`, and add:
+
+   ```
+   ORIGIN_ADDRESS=<address of this server, as reachable from the proxy server>
+   ORIGIN_PORT=8443
+   PROXY_SERVER=<address of the proxy server, as reachable from this server>
+   SCRAPER_LINK_PORT=3129
+   PROXY_HOST=http://link:3128
+   ```
+
+2. Run `./philomena.sh cert link` and `./philomena.sh up`.
+3. Continue with [Set up the proxy server](#3-set-up-the-proxy-server), then point the DNS records of all three domains at the proxy server.
 
 ## Support
 
-We're happy to answer any of your questions and help you get your deployment up and running. If you need help setting up production Philomena, or migrating it to our "kubernetes deployment", feel free to ask in [the discussions section](https://github.com/philomena-dev/philomena-docker/discussions).
+Questions about setting up and running a deployment are welcome in [the discussions section](https://github.com/philomena-dev/philomena-docker/discussions).
 
-If you'd like to report an issue with the configuration files provided in this repository, or suggest any improvements, feel free to [create an issue](https://github.com/philomena-dev/philomena-docker/issues).
+To report a problem with the files in this repository, or to suggest an improvement, [create an issue](https://github.com/philomena-dev/philomena-docker/issues).

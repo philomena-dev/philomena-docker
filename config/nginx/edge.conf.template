@@ -1,0 +1,162 @@
+# Public-facing web server: terminates TLS, serves the CDN domain from object
+# storage, and relays everything else to the application.
+#
+# entrypoint.sh renders this file when the container starts, replacing the
+# ${UPPER_CASE} placeholders with values from the environment. nginx's own
+# $variables are left alone.
+
+worker_processes auto;
+worker_rlimit_nofile 65536;
+pid /run/nginx.pid;
+error_log /dev/stderr warn;
+
+# Read by lua/s3.lua.
+env S3_SCHEME;
+env S3_HOST;
+env S3_PORT;
+env S3_REGION;
+env S3_BUCKET;
+env AWS_ACCESS_KEY_ID;
+env AWS_SECRET_ACCESS_KEY;
+
+# On a proxy server, this adds the listener that lets the app server's
+# scraper reach tinyproxy.
+include /etc/philomena/link/${EDGE_LINK}.main.conf;
+
+events {
+  worker_connections 16384;
+}
+
+http {
+  include /usr/local/openresty/nginx/conf/mime.types;
+  default_type application/octet-stream;
+
+  sendfile on;
+  tcp_nopush on;
+  server_tokens off;
+  keepalive_timeout 65;
+  server_names_hash_bucket_size 128;
+
+  log_format main '$remote_addr - [$time_local] "$host" "$request" $status '
+                  '$body_bytes_sent "$http_referer" "$http_user_agent" '
+                  '$request_time $upstream_status $upstream_cache_status';
+  access_log /dev/stdout main;
+
+  lua_package_path '/etc/philomena/lua/?.lua;;';
+
+  # Where the address of a visitor comes from.
+  include /etc/philomena/realip/${CLIENT_IP_SOURCE}.conf;
+
+  # Names are looked up when a request arrives rather than once at startup,
+  # so the other containers can be recreated or absent without this one
+  # having to be restarted.
+  resolver 127.0.0.11 valid=10s ipv6=off;
+
+  ssl_certificate /etc/philomena-certs/fullchain.pem;
+  ssl_certificate_key /etc/philomena-certs/privkey.pem;
+  ssl_protocols TLSv1.2 TLSv1.3;
+  ssl_session_cache shared:tls:10m;
+  ssl_session_timeout 1d;
+
+  # Matches the upload limit of the application.
+  client_max_body_size 130m;
+
+  map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' '';
+  }
+
+  proxy_http_version 1.1;
+  proxy_set_header Host $host;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection $connection_upgrade;
+  proxy_set_header X-Forwarded-Proto https;
+  # The application trusts these headers, so they are always overwritten
+  # with the address this server determined itself.
+  proxy_set_header X-Forwarded-For $remote_addr;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header CF-Connecting-IP '';
+  proxy_read_timeout 5m;
+  proxy_send_timeout 5m;
+
+  proxy_cache_path /var/cache/nginx/cdn levels=1:2 keys_zone=cdn:32m max_size=${CDN_CACHE_SIZE} inactive=12h use_temp_path=off;
+
+  # Requests for anything other than the configured domains.
+  server {
+    listen 80 default_server;
+    listen 443 ssl default_server;
+    ssl_reject_handshake on;
+
+    location = /nginx-health {
+      access_log off;
+      return 204;
+    }
+
+    location / {
+      return 444;
+    }
+  }
+
+  server {
+    listen 80;
+    server_name ${SITE_DOMAIN} ${CDN_DOMAIN} ${EXT_DOMAIN};
+
+    # Lets a certificate authority verify the domains (ACME HTTP-01), for
+    # clients that write their challenge files to ./volumes/acme.
+    location /.well-known/acme-challenge/ {
+      root /var/www/acme;
+    }
+
+    location / {
+      return 301 https://$host$request_uri;
+    }
+  }
+
+  server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${SITE_DOMAIN};
+
+    location / {
+      set $origin ${ORIGIN_URL};
+      proxy_pass $origin;
+      include /etc/philomena/link/${EDGE_LINK}.location.conf;
+    }
+  }
+
+  server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${CDN_DOMAIN};
+
+    # Uploaded files.
+    include /etc/philomena/cdn/${CDN_SOURCE}.conf;
+
+    # Everything else on this domain is answered by the application's web
+    # server.
+    location / {
+      set $origin ${ORIGIN_URL};
+      proxy_pass $origin;
+      include /etc/philomena/link/${EDGE_LINK}.location.conf;
+
+      proxy_cache cdn;
+      proxy_cache_key $host$request_uri;
+      proxy_cache_valid 200 302 12h;
+      proxy_cache_valid 404 1m;
+      proxy_cache_use_stale error timeout invalid_header updating http_500 http_502 http_503 http_504;
+      proxy_cache_lock on;
+      add_header X-Cache-Status $upstream_cache_status;
+    }
+  }
+
+  server {
+    listen 443 ssl;
+    http2 on;
+    server_name ${EXT_DOMAIN};
+
+    location / {
+      set $camo http://gocamo:8080;
+      proxy_pass $camo;
+    }
+  }
+}

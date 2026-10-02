@@ -1,0 +1,28 @@
+# Hosts the scraper's proxy refuses to connect to: this server, the other
+# containers, and private networks, including the metadata services of cloud
+# providers. One extended regular expression per line, matched against the
+# host name of the request.
+#
+# This is matched against the name as written, so a public name that
+# resolves to a private address still gets through. Nothing that listens on
+# those addresses should trust a request just because of where it came from.
+
+# Names without a dot: other containers, and localhost
+^[^.:]+$
+\.internal$
+\.local$
+\.localhost$
+
+# Private, loopback and link-local IPv4 ranges
+^0\.
+^10\.
+^127\.
+^169\.254\.
+^172\.(1[6-9]|2[0-9]|3[01])\.
+^192\.168\.
+^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.
+
+# Loopback, private, link-local and IPv4-mapped IPv6 addresses
+^\[?::1?\]?$
+^\[?f[cde][0-9a-f]*:
+^\[?::ffff:

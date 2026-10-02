@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Catches images and address lists that changed without a commit here.
+    - cron: '0 6 * * 1'
+
+jobs:
+  shellcheck:
+    name: Shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: ./scripts/dev/shellcheck.sh
+
+  compose:
+    name: Validate Compose files
+    runs-on: ubuntu-latest
+    env:
+      SITE_DOMAIN: philomena.test
+      CDN_DOMAIN: cdn.philomena.test
+      EXT_DOMAIN: ext.philomena.test
+      POSTGRES_PASSWORD: test
+      CAMO_KEY: test
+      S3_SCHEME: http
+      S3_HOST: files
+      S3_PORT: 80
+      S3_BUCKET: philomena
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      PROXY_SERVER: proxy.test
+      ORIGIN_URL: https://app.test:8443
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: The three Philomena images are pinned to the same version
+        run: |
+          versions=$(grep -oE 'PHILOMENA_VERSION:-[^}]+' docker-compose.yml | sort -u)
+          echo "$versions"
+          test "$(echo "$versions" | wc -l)" -eq 1
+
+      # The application reads its settings from this file.
+      - run: touch .env
+
+      - name: Single server
+        run: docker compose -f docker-compose.yml -f docker-compose.edge.yml --profile local-storage config --quiet
+
+      - name: App server
+        run: docker compose -f docker-compose.yml -f docker-compose.link-app.yml config --quiet
+
+      - name: Proxy server
+        run: docker compose -f docker-compose.edge.yml -f docker-compose.link-proxy.yml config --quiet
+
+  cloudflare:
+    name: Cloudflare address ranges are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: ./scripts/dev/update-cloudflare-ips.sh
+      - run: git diff --exit-code config/nginx/realip/cloudflare.conf
+
+  smoke-test:
+    name: Install, update and restore
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: sudo sysctl -w vm.max_map_count=262144
+      - run: ./scripts/dev/smoke-test.sh

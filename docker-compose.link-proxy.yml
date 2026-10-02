@@ -1,0 +1,18 @@
+# Proxy server end of the link between the two servers of a deployment.
+# Loaded together with docker-compose.edge.yml.
+#
+# Both directions of the link are mutually authenticated TLS connections
+# using the certificates in certs/internal:
+#
+#   - requests for the site go to the app server (ORIGIN_URL);
+#   - the app server's scraper connects to port 3129 here to reach tinyproxy.
+
+name: philomena
+
+services:
+  web:
+    environment:
+      ORIGIN_URL: ${ORIGIN_URL:?ORIGIN_URL is not set, run ./philomena.sh prepare}
+      EDGE_LINK: proxy
+    ports:
+      - '${SCRAPER_LINK_PORT:-3129}:3129'

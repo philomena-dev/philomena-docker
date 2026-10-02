@@ -1,16 +1,21 @@
-/volumes/postgres
-/volumes/opensearch
-/volumes/caddy
-/volumes/files
-/volumes/cache
-/logs/nginx
-/logs/caddy
+# Settings and credentials of this deployment
 /.env
-/.env-web
+/.env.*
 /.admin
-/nginx.conf
-*.pgdump
-*.pem
-*.srl
-*.csr
-*.cnf
+/docker-compose.override.yml
+/config/nginx/realip/custom.conf
+/proxy-bundle.tar.gz
+/.philomena.lock
+/.update-incomplete
+
+# Certificates
+/certs/*
+!/certs/.keep
+
+# Data
+/volumes/*
+!/volumes/.keep
+/backups/*
+!/backups/.keep
+/logs/*
+!/logs/.keep

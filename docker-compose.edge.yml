@@ -1,0 +1,79 @@
+# The public-facing side of a deployment: TLS termination, the CDN, and the
+# two services that fetch remote content on behalf of users.
+#
+# On a single server this file is loaded together with docker-compose.yml.
+# On a proxy server it is loaded together with docker-compose.link-proxy.yml,
+# and the application is reached over the link to the app server.
+
+name: philomena
+
+x-defaults: &defaults
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: 50m
+      max-file: '5'
+
+services:
+  web:
+    <<: *defaults
+    image: openresty/openresty:1.31.1.1-3-alpine
+    entrypoint:
+      - /bin/sh
+      - /etc/philomena/entrypoint.sh
+      - /etc/philomena/edge.conf.template
+      - SITE_DOMAIN
+      - CDN_DOMAIN
+      - EXT_DOMAIN
+      - ORIGIN_URL
+      - CDN_SOURCE
+      - CDN_CACHE_SIZE
+      - CLIENT_IP_SOURCE
+      - EDGE_LINK
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}
+      CDN_DOMAIN: ${CDN_DOMAIN}
+      EXT_DOMAIN: ${EXT_DOMAIN}
+      ORIGIN_URL: ${ORIGIN_URL:-http://caddy:80}
+      CDN_SOURCE: ${CDN_SOURCE:-storage}
+      CDN_CACHE_SIZE: ${CDN_CACHE_SIZE:-8g}
+      CLIENT_IP_SOURCE: ${CLIENT_IP_SOURCE:-direct}
+      EDGE_LINK: none
+      # Read access to object storage, for serving the CDN domain.
+      S3_SCHEME: ${S3_SCHEME:-}
+      S3_HOST: ${S3_HOST:-}
+      S3_PORT: ${S3_PORT:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      AWS_ACCESS_KEY_ID: ${WEB_AWS_ACCESS_KEY_ID:-${AWS_ACCESS_KEY_ID:-}}
+      AWS_SECRET_ACCESS_KEY: ${WEB_AWS_SECRET_ACCESS_KEY:-${AWS_SECRET_ACCESS_KEY:-}}
+    volumes:
+      - ./config/nginx:/etc/philomena:ro
+      - ./certs:/etc/philomena-certs:ro
+      - ./volumes/cache:/var/cache/nginx/cdn
+      - ./volumes/acme:/var/www/acme:ro
+    ports:
+      - '80:80'
+      - '443:443'
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1/nginx-health']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # Proxies images embedded from other sites, so that visitors never connect
+  # to those sites directly.
+  gocamo:
+    <<: *defaults
+    image: cactus4docker/go-camo:v2.7.6
+    environment:
+      GOCAMO_HMAC: ${CAMO_KEY}
+
+  # Outgoing proxy for the scraper, which fetches the URLs users submit.
+  tinyproxy:
+    <<: *defaults
+    image: ghcr.io/philomena-dev/tinyproxy:1.11.2
+    volumes:
+      - ./config/tinyproxy.conf:/tinyproxy.conf:ro
+      - ./config/tinyproxy-filter:/tinyproxy-filter:ro

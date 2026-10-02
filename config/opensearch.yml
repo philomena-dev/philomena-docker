@@ -1,0 +1,16 @@
+---
+cluster.name: philomena
+node.name: philomena
+
+# A single node. It listens on all addresses of its container, which is only
+# attached to the internal network (see docker-compose.yml).
+network.host: 0.0.0.0
+discovery.type: single-node
+
+# Keep the heap from being swapped out. The container is allowed to lock
+# memory by the ulimits in docker-compose.yml.
+bootstrap.memory_lock: true
+
+# The security plugin (TLS and user accounts) is not used: nothing outside
+# the internal network can reach this node.
+plugins.security.disabled: true

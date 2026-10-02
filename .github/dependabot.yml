@@ -1,0 +1,27 @@
+version: 2
+
+updates:
+  # The Philomena images are not listed here: all three move together, with
+  # scripts/dev/bump-philomena.sh.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      services:
+        patterns:
+          - '*'
+    ignore:
+      # A new major version of these needs its data to be converted, and has
+      # to match what the Philomena release was tested with.
+      - dependency-name: postgres
+        update-types: ['version-update:semver-major']
+      - dependency-name: opensearchproject/opensearch
+        update-types: ['version-update:semver-major']
+      - dependency-name: valkey/valkey
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
