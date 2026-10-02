@@ -14,5 +14,7 @@ services:
     environment:
       ORIGIN_URL: ${ORIGIN_URL:?ORIGIN_URL is not set, run ./philomena.sh prepare}
       EDGE_LINK: proxy
+    # Published on every address of this server, or only on SCRAPER_LINK_BIND
+    # when that is set (the WireGuard tunnel, see `./philomena.sh wireguard`).
     ports:
-      - '${SCRAPER_LINK_PORT:-3129}:3129'
+      - '${SCRAPER_LINK_BIND:-}${SCRAPER_LINK_BIND:+:}${SCRAPER_LINK_PORT:-3129}:3129'

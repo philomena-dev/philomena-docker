@@ -9,7 +9,7 @@ There are two supported layouts:
 | **App server + proxy server** (recommended) | Two | The site is open to the public. |
 | **Single server** | One | The site is small, private, or being evaluated. |
 
-In the two-server layout, the proxy server is the only machine visitors and third parties ever talk to. It terminates TLS, serves and caches the CDN domain, proxies embedded external images, and makes every outgoing request the scraper needs. The app server holds the database and the application, accepts connections only from the proxy server, and its address does not appear anywhere. If the proxy server comes under attack it can be replaced in minutes, without touching any data.
+In the two-server layout, the proxy server is the only machine visitors and third parties ever talk to. It terminates TLS, serves and caches the CDN domain, proxies embedded external images, and makes every outgoing request the scraper needs. The app server holds the database and the application, accepts connections only from the proxy server, and its address does not appear anywhere. The two are connected by a WireGuard tunnel, so the app server has no port open to the internet at all. If the proxy server comes under attack it can be replaced in minutes, without touching any data.
 
 On a single server the same components run side by side. This works well, but the address of the machine that holds your data is public, and every fetch of a user-submitted URL originates from it.
 
@@ -133,7 +133,74 @@ Then verify the server and the settings, and install:
 > [!IMPORTANT]
 > Copy `.env` somewhere safe. It holds the secrets passwords and sessions are derived from. A database backup cannot be used without it.
 
-### 3. Set up the proxy server
+### 3. Connect the two servers with WireGuard
+
+Skip this on a single server.
+
+> [!IMPORTANT]
+> This step is strongly recommended. Without it, the app server has to keep a port open to the internet. Anyone who scans for that port finds the server and can keep it busy, and the only thing standing in the way is a firewall rule at your hosting provider. Inside a WireGuard tunnel the app server has no open port, and does not answer anyone but the proxy server.
+
+The two servers talk to each other over a link of two ports. Each end proves its identity with a certificate from the deployment's private authority.
+
+| Direction | Port | Purpose |
+| --- | --- | --- |
+| Proxy server → app server | 8443 | Requests for the site |
+| App server → proxy server | 3129 | Outgoing requests of the scraper |
+
+With the tunnel, both ports are only published on addresses inside it. The app server connects to the proxy server to establish the tunnel, so the one thing exposed is a UDP port on the proxy server, which stays silent to everyone else.
+
+WireGuard also encrypts and authenticates everything that passes between the two servers, on top of the TLS of the link itself. Someone on the network path between them cannot read or alter the traffic, cannot pose as either server to intercept it, and cannot even tell what is being sent.
+
+1. On the app server, create the configuration of both ends:
+
+   ```sh
+   ./philomena.sh wireguard
+   ```
+
+   This asks for the public address of the proxy server, writes the tunnel configuration to `./wireguard`, and changes the addresses of the link in `.env` to the ones inside the tunnel.
+
+2. Still on the app server, install the tunnel as root:
+
+   ```sh
+   apt install wireguard-tools
+   /home/philomena/philomena-docker/scripts/install-wireguard.sh
+   ```
+
+   The script installs the configuration as `/etc/wireguard/philomena.conf`, brings the tunnel up now and at every boot, and makes Docker start after it.
+
+3. Move the link into the tunnel:
+
+   ```sh
+   ./philomena.sh up
+   ```
+
+The proxy server gets its end of the tunnel in the next step.
+
+The proxy server has to accept UDP port 51820 from the app server, both in your hosting provider's firewall and in a host firewall such as `ufw`. The app server needs no incoming port.
+
+#### Provider notes
+
+**OVH.** OVH's anti-DDoS system filters incoming UDP traffic. It drops fragmented UDP packets by default, and it is known to mistake a steady stream of UDP packets from a single address, which is exactly what a WireGuard tunnel looks like, for an attack, after which the tunnel stalls. For a server at OVH:
+
+- In the OVHcloud control panel, enable the Edge Network Firewall for the server's address and add a rule that authorizes UDP from the address of the other server. These rules stay in force while the anti-DDoS system is mitigating.
+- If the tunnel connects but large pages or uploads hang, packets are most likely being fragmented. Add `MTU = 1380` to the `[Interface]` section of `wireguard/philomena.conf` on both servers, and run `scripts/install-wireguard.sh` again.
+- A tunnel that keeps failing takes the site down with it. If it still drops out under load, the remaining options are a different provider for that server, or running [without the tunnel](#without-the-tunnel).
+
+#### Switching a running deployment to the tunnel
+
+A two-server deployment that runs without the tunnel is switched in the same way. After the three steps above, make a new bundle with `./philomena.sh proxy-bundle`, copy it to the proxy server, and there run:
+
+```sh
+./philomena.sh wireguard proxy-bundle.tar.gz
+```
+
+Install the tunnel as root on the proxy server with the two commands of step 2, then run `./philomena.sh up`. The site is unreachable from the moment the app server has switched until the proxy server has.
+
+#### Without the tunnel
+
+Where WireGuard cannot be used, the link also works across the internet directly: leave this step out. In that case, restrict port 8443 of the app server and port 3129 of the proxy server to the address of the other server in your hosting provider's firewall. Docker publishes ports in a way that bypasses `ufw` and similar host firewalls, so those do not protect them. `./philomena.sh check` keeps pointing out that the tunnel is missing.
+
+### 4. Set up the proxy server
 
 Skip this on a single server.
 
@@ -147,20 +214,23 @@ Copy the resulting `proxy-bundle.tar.gz` into the repository on the proxy server
 
 ```sh
 ./philomena.sh prepare --proxy proxy-bundle.tar.gz
+```
+
+Install the proxy server's end of the WireGuard tunnel as root:
+
+```sh
+apt install wireguard-tools
+/home/philomena/philomena-docker/scripts/install-wireguard.sh
+```
+
+Then verify the settings and start:
+
+```sh
 ./philomena.sh check
 ./philomena.sh up
 ```
 
 Delete the bundle from both servers afterwards; it contains credentials.
-
-The two servers talk to each other over two ports, both of which only accept a peer holding a certificate from the deployment's private authority:
-
-| Direction | Port | Purpose |
-| --- | --- | --- |
-| Proxy server → app server | 8443 | Requests for the site |
-| App server → proxy server | 3129 | Outgoing requests of the scraper |
-
-Restrict each port to the address of the other server in your hosting provider's firewall. Docker publishes ports in a way that bypasses `ufw` and similar host firewalls, so do not rely on those.
 
 When files are kept in object storage, the proxy server reads them from there directly. When they are kept on the app server, it requests them through the link.
 
@@ -287,7 +357,7 @@ A single-server deployment becomes the app server of a two-server deployment as 
    ```
 
 2. Run `./philomena.sh cert link` and `./philomena.sh up`.
-3. Continue with [Set up the proxy server](#3-set-up-the-proxy-server), then point the DNS records of all three domains at the proxy server.
+3. Continue with [Connect the two servers with WireGuard](#3-connect-the-two-servers-with-wireguard) and [Set up the proxy server](#4-set-up-the-proxy-server), then point the DNS records of all three domains at the proxy server.
 
 ## Support
 

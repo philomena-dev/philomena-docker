@@ -16,6 +16,8 @@ Installing:
   check                   Verify the server and the settings
   setup                   Create the database and start the site
   proxy-bundle            Package the settings for the proxy server
+  wireguard [bundle]      Put the link between the two servers in a WireGuard
+                          tunnel (strongly recommended)
 
 Running:
   up                      Start everything
@@ -121,6 +123,11 @@ function main {
     proxy-bundle)
       . scripts/backup.sh
       cmd_proxy_bundle
+      ;;
+
+    wireguard)
+      . scripts/wireguard.sh
+      cmd_wireguard "$@"
       ;;
 
     cert)

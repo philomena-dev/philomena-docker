@@ -8,7 +8,8 @@
 /.philomena.lock
 /.update-incomplete
 
-# Certificates
+# Certificates and keys
+/wireguard/
 /certs/*
 !/certs/.keep
 

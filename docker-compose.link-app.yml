@@ -28,8 +28,10 @@ services:
     volumes:
       - ./config/nginx:/etc/philomena:ro
       - ./certs/internal:/etc/philomena-certs/internal:ro
+    # Published on every address of this server, or only on ORIGIN_BIND when
+    # that is set (the WireGuard tunnel, see `./philomena.sh wireguard`).
     ports:
-      - '${ORIGIN_PORT:-8443}:8443'
+      - '${ORIGIN_BIND:-}${ORIGIN_BIND:+:}${ORIGIN_PORT:-8443}:8443'
     healthcheck:
       test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8080/nginx-health']
       interval: 10s

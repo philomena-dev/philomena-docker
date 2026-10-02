@@ -366,6 +366,32 @@ function check_certificates {
   done
 }
 
+# The link between two servers belongs in a WireGuard tunnel. Its port is
+# then published on the address inside the tunnel only, which has to exist
+# before the containers start.
+function check_link_address {
+  local key address
+
+  case "$(role)" in
+    app) key=ORIGIN_BIND ;;
+    proxy) key=SCRAPER_LINK_BIND ;;
+    *) return 0 ;;
+  esac
+
+  address=$(env_get "$key")
+
+  if [[ -z $address ]]; then
+    caution "The link to the other server is not in a WireGuard tunnel, which is strongly recommended. Run './philomena.sh wireguard' on the app server."
+    return 0
+  fi
+
+  command -v ip > /dev/null 2>&1 || return 0
+
+  if ! ip -o addr show | grep -qF " $address/"; then
+    fail "$key is $address, but this server has no such address. If it is the address inside the WireGuard tunnel, the tunnel is not up. As root, run: $repo_root/scripts/install-wireguard.sh"
+  fi
+}
+
 function check_compose {
   local output
 
@@ -386,6 +412,7 @@ function cmd_check {
   check_host
   check_settings
   check_certificates
+  check_link_address
   check_compose
 
   if ((check_failures > 0)); then

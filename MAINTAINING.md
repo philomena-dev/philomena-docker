@@ -79,4 +79,6 @@ scripts/dev/smoke-test.sh    # needs Docker and free ports 80 and 443
 
 The smoke test covers the single-server layout. Before merging a change to the server link (`docker-compose.link-*.yml`, `config/nginx/link*`, the proxy bundle), test a two-server deployment by hand. Both ends can run on one machine: give the two checkouts different values of `COMPOSE_PROJECT_NAME` in `.env`, and use the address of the Docker host as the address of the other end (`host.docker.internal` on Docker Desktop, the gateway of the bridge network on Linux).
 
+The WireGuard tunnel (`scripts/wireguard.sh`, `scripts/install-wireguard.sh`) belongs to the host, so it cannot be exercised by two checkouts on one machine. Its configuration can be: mount each checkout into a container that has `NET_ADMIN` and `wireguard-tools`, with the two containers on one network, and run `wg-quick up` on `wireguard/philomena.conf` in both.
+
 CI also runs weekly, to catch a pinned image that disappeared and changes to Cloudflare's address ranges (`scripts/dev/update-cloudflare-ips.sh` regenerates the list).

@@ -132,7 +132,9 @@ function cmd_setup {
 
   step compose up -d --remove-orphans --wait
 
-  if [[ $(role) == app ]]; then
+  if [[ $(role) == app && -z $(env_get ORIGIN_BIND) ]]; then
+    info "The application is running. Next: run './philomena.sh wireguard' (strongly recommended), then './philomena.sh proxy-bundle' to set up the proxy server."
+  elif [[ $(role) == app ]]; then
     info "The application is running. Next: run './philomena.sh proxy-bundle' and set up the proxy server."
   else
     info "Philomena is running at https://$(env_get SITE_DOMAIN)"

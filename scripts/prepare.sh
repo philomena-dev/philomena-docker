@@ -3,6 +3,7 @@
 # It creates the settings file and the certificates of a new deployment.
 
 . scripts/cert.sh
+. scripts/wireguard.sh
 
 function random_hex {
   openssl rand -hex "$1"
@@ -164,7 +165,9 @@ function prepare_app {
   echo "  3. Run './philomena.sh setup' to create the database and start the site." >&2
 
   if [[ $ROLE == app ]]; then
-    echo "  4. Run './philomena.sh proxy-bundle' and set up the proxy server with it." >&2
+    echo "  4. Run './philomena.sh wireguard' to put the link to the proxy server in a" >&2
+    echo "     WireGuard tunnel. This is strongly recommended." >&2
+    echo "  5. Run './philomena.sh proxy-bundle' and set up the proxy server with it." >&2
   fi
 
   echo >&2
@@ -202,6 +205,12 @@ function prepare_proxy {
 
   echo >&2
   info "Created $env_file."
+
+  if wireguard_install_from_bundle "$staging"; then
+    info "The link to the app server runs through a WireGuard tunnel."
+    explain_wireguard_install
+  fi
+
   echo >&2
   echo "Next steps:" >&2
   echo "  1. Run './philomena.sh check' to verify the settings." >&2

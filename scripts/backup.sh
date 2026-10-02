@@ -87,7 +87,7 @@ function cmd_restore {
 # Package what the proxy server needs to know: its settings, and its end of
 # the link certificates.
 function cmd_proxy_bundle {
-  local output=proxy-bundle.tar.gz staging key cdn_source
+  local output=proxy-bundle.tar.gz staging key cdn_source contents=(proxy.env internal)
 
   require_config
   [[ $(role) == app ]] || die "The bundle is made on the app server of a two-server deployment."
@@ -130,9 +130,23 @@ function cmd_proxy_bundle {
 
   env_set CDN_SOURCE "$cdn_source" "$staging/proxy.env"
 
+  # With a WireGuard tunnel, the proxy server gets its end of it, and only
+  # publishes the link's port on its address inside the tunnel.
+  if [[ -n $(env_get ORIGIN_BIND) ]]; then
+    [[ -f wireguard/proxy.conf ]] ||
+      die "ORIGIN_BIND is set, but wireguard/proxy.conf is missing. Run './philomena.sh wireguard' again."
+
+    mkdir "$staging/wireguard"
+    cp wireguard/proxy.conf "$staging/wireguard/philomena.conf"
+    env_set SCRAPER_LINK_BIND "$(env_get PROXY_SERVER)" "$staging/proxy.env"
+    contents+=(wireguard)
+  else
+    warn "The link to the proxy server is not in a WireGuard tunnel, which is strongly recommended. Run './philomena.sh wireguard' first, then make the bundle."
+  fi
+
   (
     umask 077
-    tar -czf "$output" -C "$staging" proxy.env internal
+    tar -czf "$output" -C "$staging" "${contents[@]}"
   )
 
   info "Wrote $output."
