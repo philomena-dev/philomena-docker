@@ -138,7 +138,7 @@ Then verify the server and the settings, and install:
 Skip this on a single server.
 
 > [!IMPORTANT]
-> This step is strongly recommended. Without it, the app server has to keep a port open to the internet. Anyone who scans for that port finds the server and can keep it busy, and the only thing standing in the way is a firewall rule at your hosting provider. Inside a WireGuard tunnel the app server has no open port, and does not answer anyone but the proxy server.
+> This step is strongly recommended. Without it, the app server has to keep a port open to the internet. That makes it discoverable by port scans and vulnerable to DDoS attacks, with a firewall rule at your hosting provider as its only protection. Inside a WireGuard tunnel the app server has no open port, and does not answer anyone but the proxy server.
 
 The two servers talk to each other over a link of two ports. Each end proves its identity with a certificate from the deployment's private authority.
 
