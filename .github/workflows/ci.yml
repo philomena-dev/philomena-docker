@@ -12,7 +12,7 @@ jobs:
     name: Shellcheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: ./scripts/dev/shellcheck.sh
 
   compose:
@@ -33,7 +33,7 @@ jobs:
       PROXY_SERVER: proxy.test
       ORIGIN_URL: https://app.test:8443
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: The three Philomena images are pinned to the same version
         run: |
@@ -57,7 +57,7 @@ jobs:
     name: Cloudflare address ranges are current
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: ./scripts/dev/update-cloudflare-ips.sh
       - run: git diff --exit-code config/nginx/realip/cloudflare.conf
 
@@ -65,6 +65,6 @@ jobs:
     name: Install, update and restore
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - run: sudo sysctl -w vm.max_map_count=262144
       - run: ./scripts/dev/smoke-test.sh
