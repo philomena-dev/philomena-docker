@@ -1,0 +1,46 @@
+# Selected on a proxy server. Both directions of the link are mutually
+# authenticated TLS connections using the certificates in certs/internal.
+
+# Accepts the connections the app server's scraper makes and hands them to
+# tinyproxy. Only a client holding a certificate signed by the private
+# authority gets through.
+(link_options) {
+	layer4 {
+		:3129 {
+			route {
+				tls {
+					connection_policy {
+						protocols tls1.3
+						client_auth {
+							mode require_and_verify
+							trust_pool file /etc/philomena-certs/internal/ca.pem
+						}
+					}
+				}
+
+				proxy tinyproxy:3128
+			}
+		}
+	}
+}
+
+# Requests relayed to the app server present the link certificate, and the
+# app server has to present one signed by the same private authority.
+(link_transport) {
+	transport http {
+		tls_client_auth /etc/philomena-certs/internal/edge.pem /etc/philomena-certs/internal/edge-key.pem
+		tls_trust_pool file /etc/philomena-certs/internal/ca.pem
+		tls_server_name origin.internal
+	}
+}
+
+# Caddy only loads the certificates of sites. This one exists to load the
+# certificate the listener on port 3129 presents, and cannot be reached from
+# outside the container.
+(link_sites) {
+	https://edge.internal:8444 {
+		bind 127.0.0.1
+		tls /etc/philomena-certs/internal/edge.pem /etc/philomena-certs/internal/edge-key.pem
+		abort
+	}
+}

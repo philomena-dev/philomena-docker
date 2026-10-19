@@ -21,6 +21,12 @@ updates:
       - dependency-name: valkey/valkey
         update-types: ['version-update:semver-major']
 
+  # The web server image built from images/caddy.
+  - package-ecosystem: docker
+    directory: /images/caddy
+    schedule:
+      interval: weekly
+
   - package-ecosystem: github-actions
     directory: /
     schedule:

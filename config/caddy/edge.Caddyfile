@@ -1,0 +1,124 @@
+# Public-facing web server: terminates TLS, serves the CDN domain from object
+# storage, and relays everything else to the application.
+#
+# The {$UPPER_CASE} placeholders are filled in from the environment of the
+# container when Caddy starts. Three of them select a file to import:
+# CLIENT_IP_SOURCE (realip/), CDN_SOURCE (cdn/) and EDGE_LINK (link/).
+
+# Defines the snippets link_options, link_transport and link_sites: what a
+# proxy server adds for the link to the app server.
+import /etc/philomena/link/{$EDGE_LINK}.caddy
+
+# Options that apply to every site below.
+{
+	# Certificates come from ./certs, and port 80 is configured below.
+	auto_https off
+
+	# The CDN cache, in ./volumes/cache.
+	cache {
+		path /var/cache/caddy
+		max_size {$CDN_CACHE_SIZE}
+		max_memory {$CDN_CACHE_MEMORY}
+		inactive 12h
+		ttl 6h
+		# Written to disk on the second request, served from memory until then.
+		min_uses 2
+		cache_name Philomena
+	}
+
+	servers {
+		# Where the address of a visitor comes from.
+		import /etc/philomena/realip/{$CLIENT_IP_SOURCE}.caddy
+	}
+
+	import link_options
+}
+
+(public_tls) {
+	tls /etc/philomena-certs/fullchain.pem /etc/philomena-certs/privkey.pem
+}
+
+(access_log) {
+	log {
+		output stdout
+		format filter {
+			request>headers delete
+			resp_headers delete
+			wrap json
+		}
+	}
+}
+
+# Relays a request to the application's web server: over the container
+# network on a single server, over the link on a proxy server.
+(origin) {
+	reverse_proxy {$ORIGIN_URL} {
+		# Caddy would otherwise send the address of the app server as the
+		# host of requests that cross the link.
+		header_up Host {host}
+
+		# The application trusts these headers, so they are always overwritten
+		# with the address this server determined itself.
+		header_up X-Forwarded-For {client_ip}
+		header_up X-Real-IP {client_ip}
+		header_up -CF-Connecting-IP
+
+		import link_transport
+	}
+}
+
+# Requests for anything other than the configured domains.
+http:// {
+	abort
+}
+
+http://{$SITE_DOMAIN}, http://{$CDN_DOMAIN}, http://{$EXT_DOMAIN} {
+	# Lets a certificate authority verify the domains (ACME HTTP-01), for
+	# clients that write their challenge files to ./volumes/acme.
+	handle /.well-known/acme-challenge/* {
+		root * /var/www/acme
+		file_server
+	}
+
+	handle {
+		redir https://{host}{uri} permanent
+	}
+}
+
+https://{$SITE_DOMAIN} {
+	import public_tls
+	import access_log
+
+	# Matches the upload limit of the application.
+	request_body {
+		max_size 130MiB
+	}
+
+	import origin
+}
+
+https://{$CDN_DOMAIN} {
+	import public_tls
+	import access_log
+
+	header Strict-Transport-Security "max-age=31556925"
+
+	# Uploaded files.
+	import /etc/philomena/cdn/{$CDN_SOURCE}.caddy
+
+	# Everything else on this domain is answered by the application's web
+	# server.
+	handle {
+		cache
+		import origin
+	}
+}
+
+https://{$EXT_DOMAIN} {
+	import public_tls
+	import access_log
+
+	reverse_proxy gocamo:8080
+}
+
+import link_sites

@@ -17,7 +17,7 @@ x-defaults: &defaults
 
 x-philomena: &philomena
   <<: *defaults
-  image: ghcr.io/philomena-dev/philomena:${PHILOMENA_VERSION:-1.3.0-rc1}
+  image: ghcr.io/philomena-dev/philomena:${PHILOMENA_VERSION:-1.3.0-rc3}
   working_dir: /srv/philomena
   # Secrets, mail, API keys and object storage settings come straight from
   # .env. Everything below is wiring that is the same for every deployment.
@@ -185,7 +185,7 @@ services:
 
   mediaproc:
     <<: *defaults
-    image: ghcr.io/philomena-dev/mediaproc:${PHILOMENA_VERSION:-1.3.0-rc1}
+    image: ghcr.io/philomena-dev/mediaproc:${PHILOMENA_VERSION:-1.3.0-rc3}
     environment:
       RUST_LOG: ${MEDIAPROC_LOG:-info}
     deploy:
@@ -201,8 +201,7 @@ services:
   # other request on to the application.
   caddy:
     <<: *defaults
-    image: ghcr.io/philomena-dev/philomena-web:${PHILOMENA_VERSION:-1.3.0-rc1}
-    entrypoint: ['/bin/sh', '/opt/philomena-docker/caddy-entrypoint.sh']
+    image: ghcr.io/philomena-dev/philomena-web:${PHILOMENA_VERSION:-1.3.0-rc3}
     environment:
       APP_URL: http://${SITE_DOMAIN}
       CDN_URL: http://${CDN_DOMAIN}
@@ -214,7 +213,6 @@ services:
       AWS_ACCESS_KEY_ID: ${WEB_AWS_ACCESS_KEY_ID:-${AWS_ACCESS_KEY_ID}}
       AWS_SECRET_ACCESS_KEY: ${WEB_AWS_SECRET_ACCESS_KEY:-${AWS_SECRET_ACCESS_KEY}}
     volumes:
-      - ./config/caddy/entrypoint.sh:/opt/philomena-docker/caddy-entrypoint.sh:ro
       - ./volumes/caddy:/data
       - ./logs/caddy:/var/log/caddy
     healthcheck:

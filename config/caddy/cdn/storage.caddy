@@ -1,0 +1,83 @@
+# Selected with CDN_SOURCE=storage in .env (the default).
+#
+# Uploaded files are fetched from object storage by this server, with a
+# signed request, and kept in the local cache. The application is not
+# involved in serving them. The routes are those of the CDN domain in the
+# Caddyfile of the philomena-web image.
+
+# The object in the bucket that a path names, or nothing.
+map {path} {storage_key} {
+	~^/img/download/(.+)/([0-9]+).*\.([A-Za-z0-9]+)$ /images/${1}/${2}/full.${3}
+	~^/img/view/(.+)/([0-9]+).*\.([A-Za-z0-9]+)$ /images/${1}/${2}/full.${3}
+	~^/img/(.+)$ /images/${1}
+	~^/spns/(.+)$ /adverts/${1}
+	~^/avatars/(.+)$ /avatars/${1}
+	~^/badges/(.+)$ /badges/${1}
+	~^/tags/(.+)$ /tags/${1}
+	default ""
+}
+
+# Files in the bucket can carry any content type, including none at all.
+# What visitors receive is decided by the file extension alone, so that a
+# file can never be served as something a browser would execute.
+map {path} {storage_content_type} {
+	~(?i)\.png$ image/png
+	~(?i)\.jpe?g$ image/jpeg
+	~(?i)\.gif$ image/gif
+	~(?i)\.svg$ image/svg+xml
+	~(?i)\.webp$ image/webp
+	~(?i)\.mp4$ video/mp4
+	~(?i)\.webm$ video/webm
+	default application/octet-stream
+}
+
+@storage expression {storage_key} != ""
+
+handle @storage {
+	header {
+		match status 2xx
+		Content-Type {storage_content_type}
+		Cache-Control "public, max-age=2147483647"
+		X-Content-Type-Options nosniff
+	}
+
+	@download path /img/download/*
+	header @download Content-Disposition attachment
+
+	# Every URL of a file shares one cached copy, kept under the name of the
+	# object. Videos are fetched and kept in slices, so that seeking into one
+	# that is not cached fetches what is watched, not everything before it.
+	@video path_regexp (?i)\.(mp4|webm)$
+	@not_video not path_regexp (?i)\.(mp4|webm)$
+
+	cache @video {
+		slice 8Mi
+		key {
+			template {storage_key}
+		}
+	}
+
+	cache @not_video {
+		key {
+			template {storage_key}
+		}
+	}
+
+	rewrite * {storage_key}
+
+	# Storage services describe errors in XML, which is of no use to visitors.
+	intercept {
+		@missing status 403 404
+		handle_response @missing {
+			respond "Not found" 404
+		}
+	}
+
+	s3_proxy {
+		endpoint {$S3_ENDPOINT}
+		bucket {$S3_BUCKET}
+		region {$S3_REGION}
+		access_key {$AWS_ACCESS_KEY_ID}
+		secret_key {$AWS_SECRET_ACCESS_KEY}
+	}
+}

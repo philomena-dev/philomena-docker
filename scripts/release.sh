@@ -17,13 +17,6 @@ function infrastructure_services {
   fi
 }
 
-# Whether the application image brings its own release migrations (see
-# docker/production/setup-production in the Philomena repository).
-function image_has_release_migrations {
-  compose run --rm --no-deps --entrypoint /bin/sh app \
-    -c 'test -d /srv/philomena/priv/release-migrations' > /dev/null 2>&1
-}
-
 # Run `setup-production` from the application image, which creates or
 # migrates the database and the search indexes.
 #
@@ -41,17 +34,8 @@ function run_setup_production {
   script_args=("$@")
 
   # The command is not logged: its options can carry credentials.
-  if image_has_release_migrations; then
-    compose run --rm ${run_args[@]+"${run_args[@]}"} app \
-      setup-production ${script_args[@]+"${script_args[@]}"}
-  else
-    # Images released before release migrations existed are given the copy
-    # kept in this repository.
-    compose run --rm ${run_args[@]+"${run_args[@]}"} \
-      -v "$repo_root/compat/release-setup:/opt/release-setup:ro" \
-      -e RELEASE_MIGRATIONS_DIR=/opt/release-setup/release-migrations \
-      app /bin/sh /opt/release-setup/setup-production ${script_args[@]+"${script_args[@]}"}
-  fi
+  compose run --rm ${run_args[@]+"${run_args[@]}"} app \
+    setup-production ${script_args[@]+"${script_args[@]}"}
 }
 
 function start_infrastructure {
@@ -68,10 +52,9 @@ function restart_configured_services {
 
   [[ -n $previous_commit ]] || return 0
 
-  for service in caddy web link tinyproxy opensearch; do
+  for service in web link tinyproxy opensearch; do
     case "$service" in
-      caddy) paths=(config/caddy) ;;
-      web | link) paths=(config/nginx) ;;
+      web | link) paths=(config/caddy) ;;
       tinyproxy) paths=(config/tinyproxy.conf config/tinyproxy-filter) ;;
       opensearch) paths=(config/opensearch.yml) ;;
     esac
@@ -84,6 +67,13 @@ function restart_configured_services {
   if [[ ${#restart[@]} -gt 0 ]]; then
     step compose restart "${restart[@]}"
   fi
+}
+
+# Download the published images, and build the web server image from
+# images/caddy.
+function pull_images {
+  step compose pull --quiet --ignore-buildable
+  step compose build --quiet
 }
 
 # Fail early when an image is neither on this server nor being pulled.
@@ -107,7 +97,7 @@ function cmd_setup {
   cmd_check || exit 1
   acquire_lock
 
-  step compose pull --quiet
+  pull_images
   prepare_volumes
   start_infrastructure
 
@@ -300,7 +290,7 @@ function cmd_update {
   cmd_check || exit 1
 
   if [[ $pull_images == true ]]; then
-    step compose pull --quiet
+    pull_images
   else
     require_images
   fi

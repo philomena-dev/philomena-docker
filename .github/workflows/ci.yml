@@ -53,13 +53,20 @@ jobs:
       - name: Proxy server
         run: docker compose -f docker-compose.edge.yml -f docker-compose.link-proxy.yml config --quiet
 
+  caddy:
+    name: Validate Caddy configurations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: ./scripts/dev/validate-caddy.sh
+
   cloudflare:
     name: Cloudflare address ranges are current
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - run: ./scripts/dev/update-cloudflare-ips.sh
-      - run: git diff --exit-code config/nginx/realip/cloudflare.conf
+      - run: git diff --exit-code config/caddy/realip/cloudflare.caddy
 
   smoke-test:
     name: Install, update and restore

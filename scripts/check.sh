@@ -281,14 +281,16 @@ function check_settings {
     for key in CLIENT_IP_SOURCE:realip CDN_SOURCE:cdn; do
       value=$(env_get "${key%%:*}")
 
-      if [[ -n $value && ! -f config/nginx/${key##*:}/$value.conf ]]; then
-        fail "${key%%:*} is '$value', but config/nginx/${key##*:}/$value.conf does not exist."
+      if [[ -n $value && ! -f config/caddy/${key##*:}/$value.caddy ]]; then
+        fail "${key%%:*} is '$value', but config/caddy/${key##*:}/$value.caddy does not exist."
       fi
     done
 
-    if [[ ! $(env_get CDN_CACHE_SIZE) =~ ^[0-9]+[mg]$ ]]; then
-      fail "CDN_CACHE_SIZE must be a number followed by m or g, such as 8g."
-    fi
+    for key in CDN_CACHE_SIZE CDN_CACHE_MEMORY; do
+      if [[ ! $(env_get "$key") =~ ^[0-9]+[mg]$ ]]; then
+        fail "$key must be a number followed by m or g, such as 8g."
+      fi
+    done
   fi
 
   check_domains

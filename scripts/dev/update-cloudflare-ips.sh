@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates config/nginx/realip/cloudflare.conf from the address ranges
+# Regenerates config/caddy/realip/cloudflare.caddy from the address ranges
 # Cloudflare publishes. Run it when Cloudflare announces a change; the CI
 # workflow fails when the checked-in file is out of date.
 
@@ -28,10 +28,12 @@ ranges=$(
 
 HEADER
 
+  printf 'trusted_proxies static'
+
   for range in $ranges; do
-    echo "set_real_ip_from $range;"
+    printf ' %s' "$range"
   done
 
   echo
-  echo "real_ip_header CF-Connecting-IP;"
-} > config/nginx/realip/cloudflare.conf
+  echo "client_ip_headers CF-Connecting-IP"
+} > config/caddy/realip/cloudflare.caddy

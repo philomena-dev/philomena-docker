@@ -128,7 +128,7 @@ Then verify the server and the settings, and install:
 ./philomena.sh setup
 ```
 
-`setup` creates the database and starts everything. On a single server the site is now reachable; log in and change the administrator password.
+`setup` builds the image of the web server, which takes a few minutes, then creates the database and starts everything. On a single server the site is now reachable; log in and change the administrator password.
 
 > [!IMPORTANT]
 > Copy `.env` somewhere safe. It holds the secrets passwords and sessions are derived from. A database backup cannot be used without it.
@@ -230,6 +230,8 @@ Then verify the settings and start:
 ./philomena.sh up
 ```
 
+The first start builds the image of the web server, which takes a few minutes.
+
 Delete the bundle from both servers afterwards; it contains credentials.
 
 When files are kept in object storage, the proxy server reads them from there directly. When they are kept on the app server, it requests them through the link.
@@ -262,7 +264,7 @@ If the domains are proxied by Cloudflare or a similar service, the public-facing
 CLIENT_IP_SOURCE=cloudflare
 ```
 
-and run `./philomena.sh up`. For other services, see [config/nginx/realip](config/nginx/realip).
+and run `./philomena.sh up`. For other services, see [config/caddy/realip](config/caddy/realip).
 
 ## Day-to-day operation
 
@@ -315,7 +317,7 @@ To recover on a new server, install as described above, but put the saved `.env`
 ./philomena.sh update
 ```
 
-This updates the checkout of this repository, downloads the images it now points to, and installs them. On the app server it:
+This updates the checkout of this repository, downloads the images it now points to (and builds the web server image again if it changed), and installs them. On the app server it:
 
 1. verifies the settings against what the new version expects;
 2. lets the new release check the database, while the site keeps running;

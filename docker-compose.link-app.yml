@@ -15,25 +15,21 @@ services:
       options:
         max-size: 50m
         max-file: '5'
-    image: openresty/openresty:1.31.1.1-3-alpine
-    entrypoint:
-      - /bin/sh
-      - /etc/philomena/entrypoint.sh
-      - /etc/philomena/link-app.conf.template
-      - PROXY_SERVER
-      - SCRAPER_LINK_PORT
+    image: philomena-docker-caddy
+    build: ./images/caddy
+    command: ['caddy', 'run', '--config', '/etc/philomena/link.Caddyfile', '--adapter', 'caddyfile']
     environment:
       PROXY_SERVER: ${PROXY_SERVER:?PROXY_SERVER is not set, run ./philomena.sh prepare}
       SCRAPER_LINK_PORT: ${SCRAPER_LINK_PORT:-3129}
     volumes:
-      - ./config/nginx:/etc/philomena:ro
+      - ./config/caddy:/etc/philomena:ro
       - ./certs/internal:/etc/philomena-certs/internal:ro
     # Published on every address of this server, or only on ORIGIN_BIND when
     # that is set (the WireGuard tunnel, see `./philomena.sh wireguard`).
     ports:
       - '${ORIGIN_BIND:-}${ORIGIN_BIND:+:}${ORIGIN_PORT:-8443}:8443'
     healthcheck:
-      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8080/nginx-health']
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:2019/config/']
       interval: 10s
       timeout: 5s
       retries: 6

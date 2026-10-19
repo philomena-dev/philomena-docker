@@ -3,7 +3,7 @@
 /.env.*
 /.admin
 /docker-compose.override.yml
-/config/nginx/realip/custom.conf
+/config/caddy/realip/custom.caddy
 /proxy-bundle.tar.gz
 /.philomena.lock
 /.update-incomplete

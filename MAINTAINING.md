@@ -27,7 +27,7 @@ Changes that cannot meet these rules wait for the next major version branch, whe
    The application, web server and media processor images always move together. CI fails if they differ.
 
 2. Check the release's [upgrade contract](#the-upgrade-contract-with-philomena): does the image bring its own release migrations, and do they need anything from the operator?
-3. Compare `docker-compose.yml` with what the release expects: new required environment variables in `config/runtime.exs`, the service versions in Philomena's own `docker-compose.yml`, and the routes in `docker/production/web/Caddyfile` that `config/nginx/cdn/storage.conf` mirrors.
+3. Compare `docker-compose.yml` with what the release expects: new required environment variables in `config/runtime.exs`, the service versions in Philomena's own `docker-compose.yml`, and the routes of the CDN domain in `docker/production/web/Caddyfile` that `config/caddy/cdn/storage.caddy` mirrors.
 4. Push to a development branch and let CI run. The smoke test installs a deployment from scratch, updates it and restores it.
 5. Merge into the version branch.
 
@@ -39,7 +39,7 @@ Dependabot proposes updates of the other images every week. Minor and patch upda
 
 Major versions of PostgreSQL, OpenSearch and Valkey are ignored by Dependabot on purpose. They change the on-disk format, so `update` has to convert the data (for PostgreSQL: a dump and restore, or `pg_upgrade`) before such a version can be pinned, and the version has to be one the Philomena release was tested with. The `backup` service uses the same PostgreSQL image as the database, so that `pg_dump` always matches the server.
 
-OpenResty is pinned to an exact build. `config/nginx/lua/s3.lua` uses `resty.openssl`, which ships with the image.
+The public-facing web server and the app server's end of the link run a Caddy image that every server builds for itself from `images/caddy`, with three modules: [cache-handler](https://github.com/Meow/cache-handler) for the CDN cache, [caddy-s3-proxy](https://github.com/Meow/caddy-s3-proxy) for reading object storage, and [caddy-l4](https://github.com/mholt/caddy-l4) for the scraper's side of the link, which is plain TCP. Dependabot proposes updates of the Caddy base images; the module versions are raised by hand. `scripts/dev/validate-caddy.sh` validates every combination of the configurations in `config/caddy` against the image, and runs in CI.
 
 ## Settings
 
@@ -60,24 +60,15 @@ Everything that touches the database is done by the application image. This repo
 - Steps specific to a release are *release migrations*, in `priv/release-migrations/<version>/` of the Philomena repository: `preflight`, `pre-migrate` and `post-migrate`. `setup-production` runs the ones a database has not seen yet and records them in the `release_migrations` table.
 - A release migration that needs a decision from the operator reads it from an environment variable and explains what to set. Operators pass it with `./philomena.sh update -e NAME=value`. This repository does not need to know about any particular variable.
 
-### Images without release migrations
-
-`compat/release-setup` holds a copy of `setup-production` and the release migrations, taken from the Philomena repository with `scripts/dev/sync-release-setup.sh`. `update` and `setup` mount it into images that do not contain `priv/release-migrations` themselves, which is the case up to 1.3.0-rc1.
-
-Once every image this branch can point to has its own, delete `compat/` and the fallback in `run_setup_production`.
-
-### Web server image
-
-`config/caddy/entrypoint.sh` adds `trusted_proxies` to the configuration of `philomena-web` images that lack it (up to 1.3.0-rc1), and does nothing for images that have it. Delete it, and the `entrypoint` of the `caddy` service, once the pinned release includes the setting.
-
 ## Testing
 
 ```sh
-scripts/dev/shellcheck.sh    # needs shellcheck
-scripts/dev/smoke-test.sh    # needs Docker and free ports 80 and 443
+scripts/dev/shellcheck.sh       # needs shellcheck
+scripts/dev/validate-caddy.sh   # needs Docker and openssl
+scripts/dev/smoke-test.sh       # needs Docker and free ports 80 and 443
 ```
 
-The smoke test covers the single-server layout. Before merging a change to the server link (`docker-compose.link-*.yml`, `config/nginx/link*`, the proxy bundle), test a two-server deployment by hand. Both ends can run on one machine: give the two checkouts different values of `COMPOSE_PROJECT_NAME` in `.env`, and use the address of the Docker host as the address of the other end (`host.docker.internal` on Docker Desktop, the gateway of the bridge network on Linux).
+The smoke test covers the single-server layout. Before merging a change to the server link (`docker-compose.link-*.yml`, `config/caddy/link*`, the proxy bundle), test a two-server deployment by hand. Both ends can run on one machine: give the two checkouts different values of `COMPOSE_PROJECT_NAME` in `.env`, and use the address of the Docker host as the address of the other end (`host.docker.internal` on Docker Desktop, the gateway of the bridge network on Linux).
 
 The WireGuard tunnel (`scripts/wireguard.sh`, `scripts/install-wireguard.sh`) belongs to the host, so it cannot be exercised by two checkouts on one machine. Its configuration can be: mount each checkout into a container that has `NET_ADMIN` and `wireguard-tools`, with the two containers on one network, and run `wg-quick up` on `wireguard/philomena.conf` in both.
 

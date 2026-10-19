@@ -116,12 +116,20 @@ EOF
   info "Created the certificates for the link between the two servers, valid for ten years."
 }
 
+# Caddy reads certificate files when it loads its configuration, so it is
+# told to load it again.
 function reload_web_server {
-  local service
+  local service config
 
   for service in web link; do
+    case "$service" in
+      web) config=edge.Caddyfile ;;
+      link) config=link.Caddyfile ;;
+    esac
+
     if is_running "$service"; then
-      step compose exec -T "$service" openresty -s reload
+      step compose exec -T "$service" caddy reload --force --adapter caddyfile \
+        --config "/etc/philomena/$config"
     fi
   done
 }

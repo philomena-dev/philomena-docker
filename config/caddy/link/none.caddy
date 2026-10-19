@@ -1,0 +1,11 @@
+# Selected on a single server, where there is no link to another server and
+# the application is reached directly over the container network.
+
+(link_options) {
+}
+
+(link_transport) {
+}
+
+(link_sites) {
+}

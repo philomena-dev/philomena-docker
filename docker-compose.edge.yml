@@ -18,19 +18,9 @@ x-defaults: &defaults
 services:
   web:
     <<: *defaults
-    image: openresty/openresty:1.31.1.1-3-alpine
-    entrypoint:
-      - /bin/sh
-      - /etc/philomena/entrypoint.sh
-      - /etc/philomena/edge.conf.template
-      - SITE_DOMAIN
-      - CDN_DOMAIN
-      - EXT_DOMAIN
-      - ORIGIN_URL
-      - CDN_SOURCE
-      - CDN_CACHE_SIZE
-      - CLIENT_IP_SOURCE
-      - EDGE_LINK
+    image: philomena-docker-caddy
+    build: ./images/caddy
+    command: ['caddy', 'run', '--config', '/etc/philomena/edge.Caddyfile', '--adapter', 'caddyfile']
     environment:
       SITE_DOMAIN: ${SITE_DOMAIN}
       CDN_DOMAIN: ${CDN_DOMAIN}
@@ -38,26 +28,26 @@ services:
       ORIGIN_URL: ${ORIGIN_URL:-http://caddy:80}
       CDN_SOURCE: ${CDN_SOURCE:-storage}
       CDN_CACHE_SIZE: ${CDN_CACHE_SIZE:-8g}
+      CDN_CACHE_MEMORY: ${CDN_CACHE_MEMORY:-256m}
       CLIENT_IP_SOURCE: ${CLIENT_IP_SOURCE:-direct}
       EDGE_LINK: none
       # Read access to object storage, for serving the CDN domain.
-      S3_SCHEME: ${S3_SCHEME:-}
-      S3_HOST: ${S3_HOST:-}
-      S3_PORT: ${S3_PORT:-}
-      S3_REGION: ${S3_REGION:-}
+      S3_ENDPOINT: ${S3_SCHEME:-}://${S3_HOST:-}:${S3_PORT:-}
+      S3_REGION: ${S3_REGION:-auto}
       S3_BUCKET: ${S3_BUCKET:-}
       AWS_ACCESS_KEY_ID: ${WEB_AWS_ACCESS_KEY_ID:-${AWS_ACCESS_KEY_ID:-}}
       AWS_SECRET_ACCESS_KEY: ${WEB_AWS_SECRET_ACCESS_KEY:-${AWS_SECRET_ACCESS_KEY:-}}
     volumes:
-      - ./config/nginx:/etc/philomena:ro
+      - ./config/caddy:/etc/philomena:ro
       - ./certs:/etc/philomena-certs:ro
-      - ./volumes/cache:/var/cache/nginx/cdn
+      - ./volumes/cache:/var/cache/caddy
       - ./volumes/acme:/var/www/acme:ro
     ports:
       - '80:80'
       - '443:443'
+      - '443:443/udp'
     healthcheck:
-      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1/nginx-health']
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:2019/config/']
       interval: 10s
       timeout: 5s
       retries: 6
@@ -66,7 +56,7 @@ services:
   # to those sites directly.
   gocamo:
     <<: *defaults
-    image: cactus4docker/go-camo:v2.7.6
+    image: cactus4docker/go-camo:v2.7.7
     environment:
       GOCAMO_HMAC: ${CAMO_KEY}
 

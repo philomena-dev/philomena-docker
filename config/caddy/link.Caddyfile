@@ -1,0 +1,58 @@
+# App server end of the link to the proxy server. Both directions of the
+# link are mutually authenticated TLS connections using the certificates in
+# certs/internal.
+#
+# The {$UPPER_CASE} placeholders are filled in from the environment of the
+# container when Caddy starts.
+
+# Options that apply to every site below.
+{
+	auto_https off
+
+	servers {
+		# Only the proxy server can complete the handshake below, so the
+		# visitor address it reports is taken as is.
+		trusted_proxies static 0.0.0.0/0 ::/0
+		client_ip_headers X-Forwarded-For
+
+		# The proxy server names origin.internal in the handshake and the
+		# site's domain in its requests. Caddy refuses that by default once
+		# client certificates are involved, to keep a client from reaching a
+		# site that requires one through a handshake with a site that does
+		# not. Every connection here requires one.
+		strict_sni_host insecure_off
+	}
+
+	# Connections the scraper makes to its outgoing proxy, which runs on the
+	# proxy server. The application talks plain HTTP to port 3128 here.
+	layer4 {
+		:3128 {
+			route {
+				proxy {
+					upstream {$PROXY_SERVER}:{$SCRAPER_LINK_PORT} {
+						tls_client_auth /etc/philomena-certs/internal/origin.pem /etc/philomena-certs/internal/origin-key.pem
+						tls_trust_pool file /etc/philomena-certs/internal/ca.pem
+						tls_server_name edge.internal
+					}
+				}
+			}
+		}
+	}
+}
+
+# Requests the proxy server relays for the site and the CDN.
+https://:8443 {
+	tls /etc/philomena-certs/internal/origin.pem /etc/philomena-certs/internal/origin-key.pem {
+		protocols tls1.3
+		client_auth {
+			mode require_and_verify
+			trust_pool file /etc/philomena-certs/internal/ca.pem
+		}
+	}
+
+	reverse_proxy caddy:80 {
+		header_up X-Forwarded-For {client_ip}
+		header_up X-Real-IP {client_ip}
+		header_up -CF-Connecting-IP
+	}
+}
