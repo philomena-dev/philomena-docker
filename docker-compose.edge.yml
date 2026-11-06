@@ -56,14 +56,14 @@ services:
   # to those sites directly.
   gocamo:
     <<: *defaults
-    image: cactus4docker/go-camo:v2.7.7
+    image: cactus4docker/go-camo:v3.1
     environment:
       GOCAMO_HMAC: ${CAMO_KEY}
 
   # Outgoing proxy for the scraper, which fetches the URLs users submit.
   tinyproxy:
     <<: *defaults
-    image: ghcr.io/philomena-dev/tinyproxy:1.11.2
+    image: ghcr.io/philomena-dev/tinyproxy:1.11.3
     volumes:
       - ./config/tinyproxy.conf:/tinyproxy.conf:ro
       - ./config/tinyproxy-filter:/tinyproxy-filter:ro
