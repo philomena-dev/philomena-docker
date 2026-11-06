@@ -171,7 +171,7 @@ services:
   # Holds the job queues. Persisted so that queued work survives a restart.
   valkey:
     <<: *defaults
-    image: valkey/valkey:9.1.2-alpine
+    image: valkey/valkey:9.1.3-alpine
     command: ['valkey-server', '--appendonly', 'yes']
     volumes:
       - ./volumes/valkey:/data
