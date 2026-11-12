@@ -4,3 +4,13 @@
 # everything else on the CDN domain, and kept in the local cache. This is for
 # deployments where this server cannot reach the object storage itself: a
 # separate proxy server combined with files stored on the app server.
+
+# What storage.caddy sets on the files it serves. The application's web
+# server leaves it out, and browsers would ask for every file again each time
+# it is shown.
+@uploads path /img/* /spns/* /avatars/* /badges/* /tags/*
+
+header @uploads {
+	match status 2xx
+	Cache-Control "public, max-age=2147483647"
+}

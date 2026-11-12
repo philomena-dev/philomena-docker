@@ -38,7 +38,7 @@ function file_mode {
 }
 
 function check_host {
-  local version arch memory heap free max_map_count
+  local version arch memory heap free max_map_count cpus mediaproc_cpus
 
   version=$(docker compose version --short 2> /dev/null || echo 0)
   version=${version#v}
@@ -71,6 +71,18 @@ function check_host {
 
   if ((memory < 7500)); then
     caution "This server has $((memory / 1024)) GB of memory. Expect trouble below 8 GB; 16 GB is recommended."
+  fi
+
+  # Docker refuses to start a container that is allowed more CPUs than the
+  # server has. The default is the one in docker-compose.yml.
+  cpus=$(docker info --format '{{.NCPU}}')
+  mediaproc_cpus=$(env_get MEDIAPROC_CPUS)
+  mediaproc_cpus=${mediaproc_cpus:-4}
+
+  if [[ ! $mediaproc_cpus =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    fail "MEDIAPROC_CPUS must be a number of CPUs, such as 4 or 2.5."
+  elif awk -v limit="$mediaproc_cpus" -v cpus="$cpus" 'BEGIN { exit !(limit > cpus) }'; then
+    fail "The media processor is allowed $mediaproc_cpus CPUs, but this server has $cpus. Set MEDIAPROC_CPUS=$cpus in $env_file."
   fi
 
   if [[ -r /proc/sys/vm/max_map_count ]]; then
@@ -217,6 +229,12 @@ function check_settings {
           fail "$key is too short, it has to be at least 64 characters."
         fi
       done
+
+      # The images do not use MIX_ENV, but database migrations of earlier
+      # releases do: they leave existing data unconverted when it is `prod`.
+      if grep -qE '^[[:space:]]*MIX_ENV=' "$env_file"; then
+        fail "Remove MIX_ENV from $env_file. The images do not need it, and it makes database migrations skip the conversion of existing data."
+      fi
 
       if [[ ! $(env_get POSTGRES_PASSWORD) =~ ^[A-Za-z0-9]*$ ]]; then
         fail "POSTGRES_PASSWORD may only contain letters and digits."

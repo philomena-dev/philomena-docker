@@ -17,7 +17,7 @@ x-defaults: &defaults
 
 x-philomena: &philomena
   <<: *defaults
-  image: ghcr.io/philomena-dev/philomena:${PHILOMENA_VERSION:-1.3.0-rc3}
+  image: ghcr.io/philomena-dev/philomena:${PHILOMENA_VERSION:-1.3.0}
   working_dir: /srv/philomena
   # Secrets, mail, API keys and object storage settings come straight from
   # .env. Everything below is wiring that is the same for every deployment.
@@ -64,6 +64,12 @@ x-philomena: &philomena
 services:
   app:
     <<: *philomena
+    # The application raises its own limit on open files when it starts,
+    # which fails where the Docker daemon is configured with a lower one.
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     stop_grace_period: 30s
     healthcheck:
       test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:4000/robots.txt']
@@ -74,6 +80,11 @@ services:
 
   worker:
     <<: *philomena
+    # The job queue remembers which worker a job was given to by this name. A
+    # worker that starts picks up the jobs its predecessor of the same name
+    # did not finish; under the name Docker makes up for every new container,
+    # they would be lost with each update.
+    hostname: worker
     environment:
       <<: *philomena-environment
       START_WORKER: 'true'
@@ -98,6 +109,10 @@ services:
       POSTGRES_USER: philomena
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set, run ./philomena.sh prepare}
       POSTGRES_DB: philomena
+      # Only used when the database directory is first created. Text is then
+      # compared and sorted by ICU, the same way on every system, instead of
+      # by the C library of the image, which orders it by byte value.
+      POSTGRES_INITDB_ARGS: --locale-provider=icu --icu-locale=en-US
     command:
       - postgres
       - -c
@@ -108,7 +123,9 @@ services:
     # of PostgreSQL 18 ends up in ./volumes/postgres/18.
     volumes:
       - ./volumes/postgres:/var/lib/postgresql
-    shm_size: 256m
+    # Parallel queries keep their working memory here, and fail when it runs
+    # out.
+    shm_size: ${POSTGRES_SHM_SIZE:-1g}
     stop_grace_period: 2m
     healthcheck:
       test: ['CMD', 'pg_isready', '-q', '-U', 'philomena', '-d', 'philomena']
@@ -171,7 +188,7 @@ services:
   # Holds the job queues. Persisted so that queued work survives a restart.
   valkey:
     <<: *defaults
-    image: valkey/valkey:9.1.2-alpine
+    image: valkey/valkey:9.1.3-alpine
     command: ['valkey-server', '--appendonly', 'yes']
     volumes:
       - ./volumes/valkey:/data
@@ -185,7 +202,7 @@ services:
 
   mediaproc:
     <<: *defaults
-    image: ghcr.io/philomena-dev/mediaproc:${PHILOMENA_VERSION:-1.3.0-rc3}
+    image: ghcr.io/philomena-dev/mediaproc:${PHILOMENA_VERSION:-1.3.0}
     environment:
       RUST_LOG: ${MEDIAPROC_LOG:-info}
     deploy:
@@ -201,7 +218,7 @@ services:
   # other request on to the application.
   caddy:
     <<: *defaults
-    image: ghcr.io/philomena-dev/philomena-web:${PHILOMENA_VERSION:-1.3.0-rc3}
+    image: ghcr.io/philomena-dev/philomena-web:${PHILOMENA_VERSION:-1.3.0}
     environment:
       APP_URL: http://${SITE_DOMAIN}
       CDN_URL: http://${CDN_DOMAIN}

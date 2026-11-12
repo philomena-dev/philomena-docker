@@ -28,8 +28,15 @@ Changes that cannot meet these rules wait for the next major version branch, whe
 
 2. Check the release's [upgrade contract](#the-upgrade-contract-with-philomena): does the image bring its own release migrations, and do they need anything from the operator?
 3. Compare `docker-compose.yml` with what the release expects: new required environment variables in `config/runtime.exs`, the service versions in Philomena's own `docker-compose.yml`, and the routes of the CDN domain in `docker/production/web/Caddyfile` that `config/caddy/cdn/storage.caddy` mirrors.
-4. Push to a development branch and let CI run. The smoke test installs a deployment from scratch, updates it and restores it.
-5. Merge into the version branch.
+4. Wait until all three images of the release are published. `update` pulls them the moment the version branch points at them, and fails on every deployment until they exist. The bump script refuses a version it cannot find.
+5. Test the upgrade from the release the version branch points at now, which is what every deployment is about to do:
+
+   ```sh
+   UPGRADE_FROM=1.3.0-rc3 scripts/dev/smoke-test.sh
+   ```
+
+6. Push to a development branch and let CI run. The smoke test installs a deployment from scratch, updates it and restores it.
+7. Merge into the version branch.
 
 A new major version of Philomena gets a new branch, created from the previous one. The previous branch keeps receiving fixes for as long as that major version is supported.
 
@@ -68,7 +75,7 @@ scripts/dev/validate-caddy.sh   # needs Docker and openssl
 scripts/dev/smoke-test.sh       # needs Docker and free ports 80 and 443
 ```
 
-The smoke test covers the single-server layout. Before merging a change to the server link (`docker-compose.link-*.yml`, `config/caddy/link*`, the proxy bundle), test a two-server deployment by hand. Both ends can run on one machine: give the two checkouts different values of `COMPOSE_PROJECT_NAME` in `.env`, and use the address of the Docker host as the address of the other end (`host.docker.internal` on Docker Desktop, the gateway of the bridge network on Linux).
+The smoke test covers the single-server layout. It runs as the Compose project `philomena-smoke-test`, so it leaves a development environment of Philomena on the same machine alone. Without `UPGRADE_FROM`, its update step finds nothing to upgrade and only covers the case where the application image stays the same. Before merging a change to the server link (`docker-compose.link-*.yml`, `config/caddy/link*`, the proxy bundle), test a two-server deployment by hand. Both ends can run on one machine: give the two checkouts different values of `COMPOSE_PROJECT_NAME` in `.env`, and use the address of the Docker host as the address of the other end (`host.docker.internal` on Docker Desktop, the gateway of the bridge network on Linux).
 
 The WireGuard tunnel (`scripts/wireguard.sh`, `scripts/install-wireguard.sh`) belongs to the host, so it cannot be exercised by two checkouts on one machine. Its configuration can be: mount each checkout into a container that has `NET_ADMIN` and `wireguard-tools`, with the two containers on one network, and run `wg-quick up` on `wireguard/philomena.conf` in both.
 

@@ -290,6 +290,10 @@ The periodic jobs of the application run in the `scheduler` container: one batch
 
 Edit `.env`, then run `./philomena.sh check` and `./philomena.sh up`. Do not edit the files that belong to this repository, as that blocks updates. Changes to the Compose configuration go in a `docker-compose.override.yml`, added to the end of `COMPOSE_FILE` in `.env`.
 
+### Maintenance page
+
+To take the site offline for a while without stopping anything, set `DOWNTIME=true` in `.env` on the app server (or single server) and run `./philomena.sh up`. Visitors get a page that says the site is down for maintenance. Set it back to `false`, or remove it, and run `./philomena.sh up` again to reopen the site.
+
 ### Backups
 
 The `backup` container writes a dump of the database to `./backups` every day at `BACKUP_HOUR` (UTC), and removes dumps older than `BACKUP_KEEP_DAYS` days. `./philomena.sh backup` makes one immediately.

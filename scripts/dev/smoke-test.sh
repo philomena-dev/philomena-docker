@@ -3,11 +3,21 @@
 # to end: install, serve, back up, update, restore. Used by the CI workflow;
 # it needs ports 80 and 443, and leaves nothing running.
 #
+# With UPGRADE_FROM=<version>, that release of Philomena is installed, and the
+# update step then upgrades it to the release this checkout points to:
+#
+#   UPGRADE_FROM=1.3.0-rc3 scripts/dev/smoke-test.sh
+#
 # Do not run this in a checkout that holds a real deployment.
 
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+
+# Kept apart from the other Compose projects on this machine. The development
+# environment of Philomena has the name this deployment would get, and its
+# containers would be removed along with the ones of this test.
+export COMPOSE_PROJECT_NAME=philomena-smoke-test
 
 if [[ -e .env ]]; then
   echo "This checkout already has a .env file, refusing to touch it." >&2
@@ -56,6 +66,28 @@ function set_env {
   rm -f .env.bak
 }
 
+# Print the value of a response header, in lower case.
+function header_of {
+  local name=$1
+  shift
+
+  curl --silent --insecure "${resolve[@]}" --output /dev/null --dump-header - "$@" |
+    tr -d '\r' | tr '[:upper:]' '[:lower:]' | sed -n "s/^$name: //p"
+}
+
+function expect_header {
+  local name=$1 expected=$2 description=$3 actual
+  shift 3
+  actual=$(header_of "$name" "$@")
+
+  if [[ $actual != "$expected" ]]; then
+    echo "FAIL: $description: expected '$expected', got '$actual'" >&2
+    exit 1
+  fi
+
+  echo "ok: $description"
+}
+
 echo "== prepare"
 
 ROLE=single STORAGE=local \
@@ -77,6 +109,10 @@ set_env HCAPTCHA_SITE_KEY 10000000-ffff-ffff-ffff-000000000001
 set_env HCAPTCHA_SECRET_KEY 0x0000000000000000000000000000000000000000
 set_env OPENSEARCH_HEAP 1g
 
+if [[ -n ${UPGRADE_FROM:-} ]]; then
+  echo "PHILOMENA_VERSION=$UPGRADE_FROM" >> .env
+fi
+
 echo "== setup"
 
 ./philomena.sh setup < /dev/null
@@ -91,13 +127,19 @@ expect 301 "redirect to HTTPS" --resolve "$site:80:127.0.0.1" "http://$site/"
 expect 403 "image proxy rejects unsigned URLs" "https://$ext/abc/def"
 expect 404 "missing file on the CDN" "https://$cdn/img/2020/1/1/1/full.png"
 
-# A file stored through the application has to come back out through the CDN.
+# A file stored through the application has to come back out through the CDN,
+# also when it was requested before it existed: thumbnails are requested
+# while they are still being made.
+expect 404 "file that is not stored yet" "https://$cdn/img/2024/1/2/3/full.png"
+
 docker compose exec -T app sh -c "
   printf 'smoke test' > /tmp/smoke.png
   philomena eval 'Application.ensure_all_started(:philomena); :ok = PhilomenaMedia.Objects.put(\"images/2024/1/2/3/full.png\", \"/tmp/smoke.png\")'
 "
 
 expect 200 "stored file on the CDN" "https://$cdn/img/2024/1/2/3/full.png"
+expect_header access-control-allow-origin '*' "stored file can be used by the site" "https://$cdn/img/2024/1/2/3/full.png"
+expect_header content-type image/png "stored file has the type of its extension" "https://$cdn/img/2024/1/2/3/full.png"
 expect 200 "stored file by its view URL" "https://$cdn/img/view/2024/1/2/3__safe.png"
 expect 206 "partial request" --header 'Range: bytes=0-4' "https://$cdn/img/2024/1/2/3/full.png"
 
@@ -131,6 +173,11 @@ backup=$(find backups -name 'database_*.pgdump' | sort | tail -n 1)
 [[ -s $backup ]]
 
 echo "== update"
+
+if [[ -n ${UPGRADE_FROM:-} ]]; then
+  sed -i.bak '/^PHILOMENA_VERSION=/d' .env
+  rm -f .env.bak
+fi
 
 ./philomena.sh update --yes --no-pull < /dev/null
 expect 200 "front page after update" "https://$site/"

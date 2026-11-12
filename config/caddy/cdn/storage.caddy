@@ -41,6 +41,14 @@ handle @storage {
 		X-Content-Type-Options nosniff
 	}
 
+	# The site draws images into canvases and SVG documents, when comparing
+	# the two images of a duplicate report for one. Browsers only allow that
+	# for files from another domain that carry this header.
+	header {
+		Access-Control-Allow-Origin "*"
+		defer
+	}
+
 	@download path /img/download/*
 	header @download Content-Disposition attachment
 
