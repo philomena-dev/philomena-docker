@@ -104,7 +104,7 @@ services:
 
   postgres:
     <<: *defaults
-    image: postgres:18.6-alpine
+    image: postgres:18.7-alpine
     environment:
       POSTGRES_USER: philomena
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is not set, run ./philomena.sh prepare}
@@ -140,7 +140,7 @@ services:
   # removes dumps older than BACKUP_KEEP_DAYS.
   backup:
     <<: *defaults
-    image: postgres:18.6-alpine
+    image: postgres:18.7-alpine
     user: ${HOST_UID:-1000}:${HOST_GID:-1000}
     entrypoint: ['/bin/sh', '/opt/philomena-docker/backup.sh']
     command: ['schedule']
