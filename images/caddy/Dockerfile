@@ -7,13 +7,13 @@
 #   caddy-l4        carries the scraper's connections over the server link,
 #                   which are plain TCP rather than HTTP
 
-FROM caddy:2.11.7-builder-alpine AS builder
+FROM caddy:2.11.8-builder-alpine AS builder
 
 RUN xcaddy build \
     --with github.com/Meow/cache-handler@v1.2.0 \
     --with github.com/Meow/caddy-s3-proxy@1.0.0 \
     --with github.com/mholt/caddy-l4@v0.1.2
 
-FROM caddy:2.11.7-alpine
+FROM caddy:2.11.9-alpine
 
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
